@@ -3,19 +3,28 @@
 pub mod dependencies {
     use std::collections::HashMap;
 
+    #[derive(Debug, PartialEq, Eq)]
     pub struct ModuleName(String);
+    impl ModuleName {
+        fn new(name: &str) -> Self {
+            Self(name.to_owned())
+        }
+    }
 
+    #[derive(Debug, PartialEq, Eq)]
     pub struct Position {
         line: u32,
         col: u32,
     }
 
+    #[derive(Debug, PartialEq, Eq)]
     pub struct Extent {
         start: Position,
         // Inclusive
         end: Position,
     }
 
+    #[derive(Debug, PartialEq, Eq)]
     pub enum UseStatementType {
         /// `use crate::log::Bar;`
         Simple(String),
@@ -26,11 +35,13 @@ pub mod dependencies {
     }
 
     /// A single, separate use statement.
+    #[derive(Debug, PartialEq, Eq)]
     pub struct NormalizedUseStatement {
         module_name: ModuleName,
         statement_type: UseStatementType,
     }
 
+    #[derive(Debug, PartialEq, Eq)]
     pub struct UseStatement {
         /// Where the use statement appears.
         source_module: ModuleName,
@@ -44,6 +55,7 @@ pub mod dependencies {
 
     pub type UseStatements = Vec<UseStatement>;
 
+    #[derive(Debug, Hash, PartialEq, Eq)]
     pub struct File(String);
 
     pub type UseStatementMap = HashMap<File, UseStatements>;
@@ -62,11 +74,38 @@ pub mod dependencies {
 
     #[cfg(test)]
     mod tests {
+        use std::{collections::HashMap, path::Path};
+
         use pretty_assertions::assert_eq;
 
+        use crate::dependencies::{
+            Extent, File, ModuleName, NormalizedUseStatement, Position, UseStatement,
+            UseStatementType, list_use_statements,
+        };
+
         #[test]
-        fn sample_test() {
-            assert_eq!(1, 1);
+        fn get_simple_dependency() {
+            let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple");
+            let res = list_use_statements(&fixture);
+            let mut expected = HashMap::new();
+            expected.insert(
+                File("src/main.rs".to_owned()),
+                vec![UseStatement {
+                    source_module: ModuleName::new("main"),
+                    target_modules: vec![ModuleName::new("std::collections::HashMap")],
+                    extent: Extent {
+                        start: Position { line: 1, col: 0 },
+                        end: Position { line: 1, col: 30 },
+                    },
+                    normalized_statements: vec![NormalizedUseStatement {
+                        module_name: ModuleName::new("main"),
+                        statement_type: UseStatementType::Simple(
+                            "std::collections::HashMap".to_owned(),
+                        ),
+                    }],
+                }],
+            );
+            assert_eq!(res, expected);
         }
     }
 }
