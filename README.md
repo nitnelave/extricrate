@@ -1,5 +1,11 @@
 # Extricrate
 
+<p align="center">
+  <a href="https://discord.gg/Dned3QwJe2">
+    <img alt="Discord" src="https://img.shields.io/discord/898492935446876200?label=discord&logo=discord" />
+  </a>
+</p>
+
 Automated refactoring tool to extract a Rust module into a separate crate.
 
 > extricate (v): free something from a constraint.
