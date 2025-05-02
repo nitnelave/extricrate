@@ -1,0 +1,17 @@
+[package]
+name = "extricrate"
+version = "0.0.1"
+description = "Automated refactoring library to extract a Rust module into a separate crate."
+categories = ["command-line-utilities"]
+edition.workspace = true
+keywords = ["refactoring"]
+authors.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+tracing.workspace = true
+
+[dev-dependencies]
+pretty_assertions.workspace = true

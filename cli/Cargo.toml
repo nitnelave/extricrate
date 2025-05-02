@@ -1,0 +1,26 @@
+[package]
+name = "cargo-extricrate"
+version = "0.0.1"
+description = "Automated refactoring tool to extract a Rust module into a separate crate."
+categories = ["command-line-utilities"]
+edition.workspace = true
+keywords = ["cli", "refactoring"]
+authors.workspace = true
+homepage.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+log.workspace = true
+tracing.workspace = true
+tracing-attributes.workspace = true
+tracing-forest.workspace = true
+tracing-log.workspace = true
+tracing-subscriber.workspace = true
+
+[dependencies.clap]
+features = ["std", "color", "suggestions", "derive", "env"]
+version = "4"
+
+[dev-dependencies]
+pretty_assertions.workspace = true
