@@ -59,6 +59,16 @@ pub mod dependencies {
     pub fn list_dependencies(use_statements: &UseStatementMap) -> ModuleDependencies {
         todo!()
     }
+
+    #[cfg(test)]
+    mod tests {
+        use pretty_assertions::assert_eq;
+
+        #[test]
+        fn sample_test() {
+            assert_eq!(1, 1);
+        }
+    }
 }
 
 pub mod refactor {

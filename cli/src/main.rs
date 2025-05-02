@@ -1,4 +1,4 @@
-#![allow(unused_variables)]
+#![allow(dead_code, unused_variables)]
 
 use clap::Parser;
 
