@@ -1,0 +1,105 @@
+name: Rust
+
+on:
+  push:
+    branches: [ master ]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  pre_job:
+    continue-on-error: true
+    runs-on: ubuntu-latest
+    outputs:
+      should_skip: ${{ steps.skip_check.outputs.should_skip }}
+    steps:
+      - id: skip_check
+        uses: fkirc/skip-duplicate-actions@master
+        with:
+          concurrent_skipping: 'outdated_runs'
+          skip_after_successful_duplicate: 'true'
+          paths_ignore: '["**/*.md", "**/docs/**", "*.sh", ".gitignore"]'
+          do_not_skip: '["workflow_dispatch", "schedule"]'
+          cancel_others: true
+
+  test:
+    name: cargo test
+    needs: pre_job
+    if: ${{ needs.pre_job.outputs.should_skip != 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4.2.2
+      - uses: Swatinem/rust-cache@v2
+      - name: Build
+        run: cargo build --verbose --workspace
+      - name: Run tests
+        run: cargo test --verbose --workspace
+
+  clippy:
+    name: cargo clippy
+    needs: pre_job
+    if: ${{ needs.pre_job.outputs.should_skip != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4.2.2
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo clippy
+        uses: actions-rs/cargo@v1
+        with:
+          command: clippy
+          args: --tests --all -- -D warnings
+
+  format:
+    name: cargo fmt
+    needs: pre_job
+    if: ${{ needs.pre_job.outputs.should_skip != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4.2.2
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Run cargo fmt
+        uses: actions-rs/cargo@v1
+        with:
+          command: fmt
+          args: --all -- --check
+
+  coverage:
+    name: Code coverage
+    needs:
+      - pre_job
+      - test
+    if: ${{ needs.pre_job.outputs.should_skip != 'true' || (github.event_name == 'push' && github.ref == 'refs/heads/master') }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4.2.2
+
+      - name: Install Rust
+        run: rustup toolchain install nightly --component llvm-tools-preview && rustup component add llvm-tools-preview --toolchain stable-x86_64-unknown-linux-gnu
+
+      - uses: taiki-e/install-action@cargo-llvm-cov
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Generate code coverage for unit test
+        run: cargo llvm-cov  --workspace --no-report
+      - name: Aggregate reports
+        run: cargo llvm-cov --no-run --lcov --output-path lcov.info
+      - name: Upload coverage to Codecov (master)
+        uses: codecov/codecov-action@v4
+        with:
+          files: lcov.info
+          fail_ci_if_error: true
+          codecov_yml_path: .github/codecov.yml
+          token: ${{ secrets.CODECOV_TOKEN }}
