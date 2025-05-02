@@ -10,7 +10,7 @@ Automated refactoring tool to extract a Rust module into a separate crate.
 
 `cargo extricrate extract --module my_crate.auth --crate_name my_crate_auth`
 
-`cargo extricrate list-dependencies --module my_crate.auth`
+`cargo extricrate list_dependencies --module my_crate.auth`
 
 ## Contributing
 
