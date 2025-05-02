@@ -1,8 +1,16 @@
 # Extricrate
 
 <p align="center">
+  <a href="https://github.com/nitnelave/extricrate/actions/workflows/rust.yml?query=branch%3Amaster">
+    <img
+      src="https://github.com/nitnelave/extricrate/actions/workflows/rust.yml/badge.svg"
+      alt="Build"/>
+  </a>
   <a href="https://discord.gg/Dned3QwJe2">
     <img alt="Discord" src="https://img.shields.io/discord/898492935446876200?label=discord&logo=discord" />
+  </a>
+  <a href="https://app.codecov.io/gh/nitnelave/extricrate">
+    <img alt="Codecov" src="https://img.shields.io/codecov/c/github/nitnelave/extricrate" />
   </a>
 </p>
 
