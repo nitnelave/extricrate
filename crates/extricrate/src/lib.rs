@@ -173,8 +173,8 @@ pub mod dependencies {
                     source_module: ModuleName::new("main"),
                     target_modules: vec![ModuleName::new("std::collections::HashMap")],
                     extent: Extent {
-                        start: Position { line: 1, col: 0 },
-                        end: Position { line: 1, col: 30 },
+                        start: Position { line: 1, col: 1 },
+                        end: Position { line: 1, col: 31 },
                     },
                     normalized_statements: vec![NormalizedUseStatement {
                         module_name: ModuleName::new("main"),
