@@ -2,6 +2,12 @@
 
 pub mod dependencies {
     use std::collections::HashMap;
+    use std::fs::read_to_string;
+
+    use quote::ToTokens;
+    use syn::visit::{self, Visit};
+    use syn::{ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file};
+    use thiserror::Error;
 
     #[derive(Debug, PartialEq, Eq)]
     pub struct ModuleName(String);
@@ -24,6 +30,13 @@ pub mod dependencies {
         end: Position,
     }
 
+    /// A single, separate use statement.
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct NormalizedUseStatement {
+        module_name: ModuleName,
+        statement_type: UseStatementType,
+    }
+
     #[derive(Debug, PartialEq, Eq)]
     pub enum UseStatementType {
         /// `use crate::log::Bar;`
@@ -32,13 +45,6 @@ pub mod dependencies {
         Alias(String, String),
         /// `use crate::log::*;`
         WildCard,
-    }
-
-    /// A single, separate use statement.
-    #[derive(Debug, PartialEq, Eq)]
-    pub struct NormalizedUseStatement {
-        module_name: ModuleName,
-        statement_type: UseStatementType,
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -60,9 +66,81 @@ pub mod dependencies {
 
     pub type UseStatementMap = HashMap<File, UseStatements>;
 
+    struct UseVisitor;
+
+    impl<'ast> Visit<'ast> for UseVisitor {
+        fn visit_item_use(&mut self, node: &'ast ItemUse) {
+            let tokens = node.to_token_stream();
+            dbg!(flatten_use_tree("", &node.tree));
+            visit::visit_item_use(self, node);
+        }
+    }
+
+    fn flatten_use_tree(prefix: &str, tree: &UseTree) -> Vec<UseStatementType> {
+        match tree {
+            UseTree::Path(UsePath { ident, tree, .. }) => {
+                let new_prefix = if prefix.is_empty() {
+                    ident.to_string()
+                } else {
+                    format!("{}::{}", prefix, ident)
+                };
+                flatten_use_tree(&new_prefix, tree)
+            }
+
+            UseTree::Name(UseName { ident, .. }) => {
+                let full = if prefix.is_empty() {
+                    ident.to_string()
+                } else {
+                    format!("{}::{}", prefix, ident)
+                };
+                vec![UseStatementType::Simple(full)]
+            }
+
+            UseTree::Rename(UseRename { ident, rename, .. }) => {
+                let full = if prefix.is_empty() {
+                    ident.to_string()
+                } else {
+                    format!("{}::{}", prefix, ident)
+                };
+                vec![UseStatementType::Alias(full, rename.to_string())]
+            }
+
+            UseTree::Glob(UseGlob { .. }) => {
+                vec![UseStatementType::WildCard]
+            }
+
+            UseTree::Group(UseGroup { items, .. }) => items
+                .iter()
+                .flat_map(|subtree| flatten_use_tree(prefix, subtree))
+                .collect(),
+        }
+    }
+
+    #[derive(Debug, Error)]
+    pub enum ListUseStatementError {
+        #[error("file not found")]
+        FileNotFound,
+        #[error("file not parsable")]
+        FileNotParsable,
+        #[error("file not readable")]
+        FileNotReadable,
+    }
+
     /// List all the `use` statements in the crate, by file/module.
-    pub fn list_use_statements(crate_root: &std::path::Path) -> UseStatementMap {
-        todo!()
+    pub fn list_use_statements(
+        crate_root: &std::path::Path,
+    ) -> Result<UseStatementMap, ListUseStatementError> {
+        if !crate_root.exists() {
+            return Err(ListUseStatementError::FileNotFound);
+        }
+        let content =
+            read_to_string(crate_root).map_err(|_| ListUseStatementError::FileNotReadable)?;
+        let parsed_crate_root =
+            parse_file(&content).map_err(|_| ListUseStatementError::FileNotParsable)?;
+
+        UseVisitor.visit_file(&parsed_crate_root);
+
+        todo!();
     }
 
     pub type ModuleDependencies = HashMap<ModuleName, Vec<ModuleName>>;
@@ -85,8 +163,9 @@ pub mod dependencies {
 
         #[test]
         fn get_simple_dependency() {
-            let fixture = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple");
-            let res = list_use_statements(&fixture);
+            let fixture =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple/main.rs");
+            let res = list_use_statements(&fixture).expect("Failed to list statements");
             let mut expected = HashMap::new();
             expected.insert(
                 File("src/main.rs".to_owned()),
