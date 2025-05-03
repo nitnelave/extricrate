@@ -12,8 +12,8 @@ pub mod dependencies {
     #[derive(Debug, PartialEq, Eq)]
     pub struct ModuleName(String);
     impl ModuleName {
-        fn new(name: &str) -> Self {
-            Self(name.to_owned())
+        fn new(name: String) -> Self {
+            Self(name)
         }
     }
 
@@ -170,14 +170,14 @@ pub mod dependencies {
             expected.insert(
                 File("src/main.rs".to_owned()),
                 vec![UseStatement {
-                    source_module: ModuleName::new("main"),
-                    target_modules: vec![ModuleName::new("std::collections::HashMap")],
+                    source_module: ModuleName::new("main".to_owned()),
+                    target_modules: vec![ModuleName::new("std::collections::HashMap".to_owned())],
                     extent: Extent {
                         start: Position { line: 1, col: 1 },
                         end: Position { line: 1, col: 31 },
                     },
                     normalized_statements: vec![NormalizedUseStatement {
-                        module_name: ModuleName::new("main"),
+                        module_name: ModuleName::new("main".to_owned()),
                         statement_type: UseStatementType::Simple(
                             "std::collections::HashMap".to_owned(),
                         ),
