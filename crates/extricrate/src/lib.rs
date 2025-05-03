@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables)]
 
 pub mod dependencies {
-    use std::collections::HashMap;
+    use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs::read_to_string;
 
     use quote::ToTokens;
@@ -68,12 +68,23 @@ pub mod dependencies {
 
     pub type UseStatementMap = HashMap<File, UseStatements>;
 
-    struct UseVisitor;
+    #[derive(Debug)]
+    struct UseVisitor {
+        dependencies: Vec<UseStatementType>,
+    }
+    impl UseVisitor {
+        fn new() -> Self {
+            Self {
+                dependencies: Vec::new(),
+            }
+        }
+    }
 
     impl<'ast> Visit<'ast> for UseVisitor {
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
             let tokens = node.to_token_stream();
-            dbg!(flatten_use_tree("", &node.tree));
+            let mut items = flatten_use_tree("", &node.tree);
+            self.dependencies.append(&mut items);
             visit::visit_item_use(self, node);
         }
     }
@@ -127,15 +138,32 @@ pub mod dependencies {
     pub fn list_use_statements(
         crate_root: &std::path::Path,
     ) -> Result<UseStatementMap, ListUseStatementError> {
-        if !crate_root.exists() {
-            return Err(ListUseStatementError::FileNotFound);
-        }
-        let content =
-            read_to_string(crate_root).map_err(|_| ListUseStatementError::FileNotReadable)?;
-        let parsed_crate_root =
-            parse_file(&content).map_err(|_| ListUseStatementError::FileNotParsable)?;
+        let mut files_visited = HashSet::new();
+        let mut files_to_visit = VecDeque::new();
+        files_to_visit.push_back(crate_root);
+        while let Some(file_to_visit) = files_to_visit.pop_front() {
+            if files_visited.contains(file_to_visit) {
+                continue;
+            }
 
-        UseVisitor.visit_file(&parsed_crate_root);
+            if !file_to_visit.exists() {
+                return Err(ListUseStatementError::FileNotFound);
+            }
+
+            let content = read_to_string(file_to_visit)
+                .map_err(|_| ListUseStatementError::FileNotReadable)?;
+
+            let parsed_file =
+                parse_file(&content).map_err(|_| ListUseStatementError::FileNotParsable)?;
+
+            let mut visitor = UseVisitor::new();
+            visitor.visit_file(&parsed_file);
+            for dependency in visitor.dependencies {
+                // TODO: check if the dependency is local to the crate. if so, and it hasn't been
+                // visited before, add it to the list
+            }
+            files_visited.insert(file_to_visit);
+        }
 
         todo!();
     }
