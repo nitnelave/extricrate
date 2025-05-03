@@ -163,9 +163,9 @@ pub mod dependencies {
 
         #[test]
         fn get_simple_dependency() {
-            let fixture =
+            let test_project =
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple/main.rs");
-            let res = list_use_statements(&fixture).expect("Failed to list statements");
+            let res = list_use_statements(&test_project).expect("Failed to list statements");
             let mut expected = HashMap::new();
             expected.insert(
                 File("src/main.rs".to_owned()),
