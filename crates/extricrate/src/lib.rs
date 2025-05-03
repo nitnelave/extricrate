@@ -6,7 +6,9 @@ pub mod dependencies {
 
     use quote::ToTokens;
     use syn::visit::{self, Visit};
-    use syn::{ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file};
+    use syn::{
+        Ident, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file,
+    };
     use thiserror::Error;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -77,32 +79,27 @@ pub mod dependencies {
     }
 
     fn flatten_use_tree(prefix: &str, tree: &UseTree) -> Vec<UseStatementType> {
+        let prefixed = |ident: &Ident| {
+            if prefix.is_empty() {
+                ident.to_string()
+            } else {
+                format!("{}::{}", prefix, ident)
+            }
+        };
         match tree {
             UseTree::Path(UsePath { ident, tree, .. }) => {
-                let new_prefix = if prefix.is_empty() {
-                    ident.to_string()
-                } else {
-                    format!("{}::{}", prefix, ident)
-                };
+                let new_prefix = prefixed(ident);
                 flatten_use_tree(&new_prefix, tree)
             }
 
             UseTree::Name(UseName { ident, .. }) => {
-                let full = if prefix.is_empty() {
-                    ident.to_string()
-                } else {
-                    format!("{}::{}", prefix, ident)
-                };
-                vec![UseStatementType::Simple(full)]
+                let full_name = prefixed(ident);
+                vec![UseStatementType::Simple(full_name)]
             }
 
             UseTree::Rename(UseRename { ident, rename, .. }) => {
-                let full = if prefix.is_empty() {
-                    ident.to_string()
-                } else {
-                    format!("{}::{}", prefix, ident)
-                };
-                vec![UseStatementType::Alias(full, rename.to_string())]
+                let full_name = prefixed(ident);
+                vec![UseStatementType::Alias(full_name, rename.to_string())]
             }
 
             UseTree::Glob(UseGlob { .. }) => {
