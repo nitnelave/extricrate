@@ -209,10 +209,8 @@ pub mod dependencies {
     }
 
     fn get_path_from_module_name(src_folder: &Path, name: &str) -> Option<PathBuf> {
+        // TODO: Read crate name and strip also that from the prefix ie: my_crate::..
         let relative_path = name.strip_prefix("crate::").unwrap_or(name);
-        let relative_path = relative_path
-            .strip_prefix("my_crate::")
-            .unwrap_or(relative_path);
         let mut base = src_folder.to_path_buf();
         for segment in relative_path.split("::") {
             base.push(segment);
@@ -232,7 +230,8 @@ pub mod dependencies {
     }
 
     fn is_local_import(name: &str) -> bool {
-        name.starts_with("crate::") || name.starts_with("my_crate::")
+        //TODO: Read crate name and conside that local imports  ie: my_crate::..
+        name.starts_with("crate::")
     }
 
     pub type ModuleDependencies = HashMap<ModuleName, Vec<ModuleName>>;
