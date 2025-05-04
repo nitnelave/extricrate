@@ -53,7 +53,7 @@ pub mod dependencies {
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
         target_modules: Vec<ModuleName>,
         /// Where in the source file the use statement is.
-        statements: Vec<UseStatementDetail>,
+        statement: UseStatementDetail,
     }
 
     pub type UseStatements = Vec<UseStatement>;
@@ -235,7 +235,7 @@ pub mod dependencies {
                     UseStatement {
                         source_module: ModuleName::new(file_to_visit.1.clone()),
                         target_modules,
-                        statements: vec![UseStatementDetail { items, extent }],
+                        statement: UseStatementDetail { items, extent },
                     }
                 })
                 .collect();
@@ -308,7 +308,7 @@ pub mod dependencies {
             let res = list_use_statements(&test_project).expect("Failed to list statements");
             let mut expected = HashMap::new();
 
-            let main_module_statements_module_a = vec![UseStatementDetail {
+            let main_module_statements_module_a = UseStatementDetail {
                 items: vec![NormalizedUseStatement {
                     module_name: ModuleName::new("crate".to_owned()),
                     statement_type: UseStatementType::Simple("module_a".to_owned()),
@@ -317,9 +317,9 @@ pub mod dependencies {
                     start: LineColumn { line: 1, column: 0 },
                     end: LineColumn { line: 1, column: 3 },
                 },
-            }];
+            };
 
-            let module_b_statements = vec![UseStatementDetail {
+            let module_b_statements = UseStatementDetail {
                 items: vec![NormalizedUseStatement {
                     module_name: ModuleName::new("std::collections".to_owned()),
                     statement_type: UseStatementType::Simple("HashMap".to_owned()),
@@ -328,13 +328,13 @@ pub mod dependencies {
                     start: LineColumn { line: 1, column: 0 },
                     end: LineColumn { line: 1, column: 3 },
                 },
-            }];
+            };
             expected.insert(
                 File("src/module_a/mod.rs".to_owned()),
                 vec![UseStatement {
                     source_module: ModuleName::new("module_a".to_owned()),
                     target_modules: vec![ModuleName::new("std::collections".to_owned())],
-                    statements: module_b_statements,
+                    statement: module_b_statements,
                 }],
             );
             expected.insert(
@@ -342,7 +342,7 @@ pub mod dependencies {
                 vec![UseStatement {
                     source_module: ModuleName::new("main".to_owned()),
                     target_modules: vec![ModuleName::new("crate".to_owned())],
-                    statements: main_module_statements_module_a,
+                    statement: main_module_statements_module_a,
                 }],
             );
             assert_eq!(res, expected);
