@@ -238,6 +238,7 @@ pub mod dependencies {
                         items.iter().map(|item| item.module_name.clone()).collect();
 
                     UseStatement {
+                        // TODO: this is not the correct module if there is a scoped mod in the file
                         source_module: file_to_visit.1.clone().into(),
                         target_modules,
                         statement: UseStatementDetail { items, extent },
