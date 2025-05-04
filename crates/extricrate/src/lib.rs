@@ -7,6 +7,7 @@ pub mod dependencies {
 
     use proc_macro2::LineColumn;
     use quote::ToTokens;
+    use syn::spanned::Spanned;
     use syn::visit::{self, Visit};
     use syn::{
         Ident, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file,
@@ -95,8 +96,8 @@ pub mod dependencies {
             self.statements.push(UseStatementDetail {
                 items,
                 extent: Extent {
-                    start: node.use_token.span.start(),
-                    end: node.use_token.span.end(),
+                    start: node.span().start(),
+                    end: node.span().end(),
                 },
             });
 
@@ -319,7 +320,10 @@ pub mod dependencies {
                 }],
                 extent: Extent {
                     start: LineColumn { line: 1, column: 0 },
-                    end: LineColumn { line: 1, column: 3 },
+                    end: LineColumn {
+                        line: 1,
+                        column: 20,
+                    },
                 },
             };
 
@@ -330,7 +334,10 @@ pub mod dependencies {
                 }],
                 extent: Extent {
                     start: LineColumn { line: 1, column: 0 },
-                    end: LineColumn { line: 1, column: 3 },
+                    end: LineColumn {
+                        line: 1,
+                        column: 30,
+                    },
                 },
             };
             expected.insert(
