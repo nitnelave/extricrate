@@ -15,9 +15,15 @@ pub mod dependencies {
 
     #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct ModuleName(String);
-    impl ModuleName {
-        fn new(name: String) -> Self {
-            Self(name)
+
+    impl From<String> for ModuleName {
+        fn from(value: String) -> Self {
+            Self(value)
+        }
+    }
+    impl From<&str> for ModuleName {
+        fn from(value: &str) -> Self {
+            Self(value.to_owned())
         }
     }
 
@@ -233,7 +239,7 @@ pub mod dependencies {
                         items.iter().map(|item| item.module_name.clone()).collect();
 
                     UseStatement {
-                        source_module: ModuleName::new(file_to_visit.1.clone()),
+                        source_module: file_to_visit.1.clone().into(),
                         target_modules,
                         statement: UseStatementDetail { items, extent },
                     }
@@ -298,7 +304,7 @@ pub mod dependencies {
         use proc_macro2::LineColumn;
 
         use crate::dependencies::{
-            Extent, File, ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail,
+            Extent, File, NormalizedUseStatement, UseStatement, UseStatementDetail,
             UseStatementType, list_use_statements,
         };
 
@@ -310,7 +316,7 @@ pub mod dependencies {
 
             let main_module_statements_module_a = UseStatementDetail {
                 items: vec![NormalizedUseStatement {
-                    module_name: ModuleName::new("crate".to_owned()),
+                    module_name: "crate".into(),
                     statement_type: UseStatementType::Simple("module_a".to_owned()),
                 }],
                 extent: Extent {
@@ -321,7 +327,7 @@ pub mod dependencies {
 
             let module_b_statements = UseStatementDetail {
                 items: vec![NormalizedUseStatement {
-                    module_name: ModuleName::new("std::collections".to_owned()),
+                    module_name: "std::collections".into(),
                     statement_type: UseStatementType::Simple("HashMap".to_owned()),
                 }],
                 extent: Extent {
@@ -332,16 +338,16 @@ pub mod dependencies {
             expected.insert(
                 File("src/module_a/mod.rs".to_owned()),
                 vec![UseStatement {
-                    source_module: ModuleName::new("module_a".to_owned()),
-                    target_modules: vec![ModuleName::new("std::collections".to_owned())],
+                    source_module: "module_a".into(),
+                    target_modules: vec!["std::collections".into()],
                     statement: module_b_statements,
                 }],
             );
             expected.insert(
                 File("src/main.rs".to_owned()),
                 vec![UseStatement {
-                    source_module: ModuleName::new("main".to_owned()),
-                    target_modules: vec![ModuleName::new("crate".to_owned())],
+                    source_module: "main".into(),
+                    target_modules: vec!["crate".into()],
                     statement: main_module_statements_module_a,
                 }],
             );
