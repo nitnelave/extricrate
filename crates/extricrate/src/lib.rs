@@ -81,6 +81,7 @@ pub mod dependencies {
         }
     }
 
+    // TODO: Visit also `mod` nodes, otherwise we would be missing some modules
     impl<'ast> Visit<'ast> for UseVisitor {
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
             let tokens = node.to_token_stream();
