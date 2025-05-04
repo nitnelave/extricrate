@@ -221,7 +221,6 @@ pub mod dependencies {
                             let file_to_visit = get_path_from_module_name(src_folder, name).ok_or(
                                 ListUseStatementError::ModuleDoesNotExists(name.to_string()),
                             )?;
-                            dbg!(&files_to_visit);
                             files_to_visit.push_back((file_to_visit, name.to_owned()));
                         }
                     }
