@@ -138,6 +138,7 @@ name = "extricrate"
 version = "0.0.1"
 dependencies = [
  "pretty_assertions",
+ "proc-macro2",
  "quote",
  "syn",
  "thiserror 2.0.12",

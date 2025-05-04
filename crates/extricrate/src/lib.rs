@@ -5,6 +5,7 @@ pub mod dependencies {
     use std::fs::read_to_string;
     use std::path::{Path, PathBuf};
 
+    use proc_macro2::LineColumn;
     use quote::ToTokens;
     use syn::visit::{self, Visit};
     use syn::{
@@ -21,16 +22,10 @@ pub mod dependencies {
     }
 
     #[derive(Debug, PartialEq, Eq)]
-    pub struct Position {
-        line: u32,
-        col: u32,
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
     pub struct Extent {
-        start: Position,
+        start: LineColumn,
         // Inclusive
-        end: Position,
+        end: LineColumn,
     }
 
     /// A single, separate use statement.
@@ -70,8 +65,14 @@ pub mod dependencies {
     pub type UseStatementMap = HashMap<File, UseStatements>;
 
     #[derive(Debug)]
+    struct UseStatementWithContext {
+        statements: Vec<UseStatementType>,
+        extent: Extent,
+    }
+
+    #[derive(Debug)]
     struct UseVisitor {
-        dependencies: Vec<UseStatementType>,
+        dependencies: Vec<UseStatementWithContext>,
     }
     impl UseVisitor {
         fn new() -> Self {
@@ -85,8 +86,15 @@ pub mod dependencies {
     impl<'ast> Visit<'ast> for UseVisitor {
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
             let tokens = node.to_token_stream();
-            let mut items = flatten_use_tree("", &node.tree);
-            self.dependencies.append(&mut items);
+            let items = flatten_use_tree("", &node.tree);
+            self.dependencies.push(UseStatementWithContext {
+                statements: items,
+                extent: Extent {
+                    start: node.use_token.span.start(),
+                    end: node.use_token.span.end(),
+                },
+            });
+
             visit::visit_item_use(self, node);
         }
     }
@@ -140,7 +148,7 @@ pub mod dependencies {
         ModuleDoesNotExists(String),
     }
 
-    pub fn get_crate_entrypoint(crate_root: &Path) -> Option<PathBuf> {
+    fn get_crate_entrypoint(crate_root: &Path) -> Option<PathBuf> {
         // TODO: support multiple targets and custom paths different than src/main.rs or src/lib.rs
 
         let cargo_toml = crate_root.join("Cargo.toml");
@@ -166,22 +174,23 @@ pub mod dependencies {
     ) -> Result<UseStatementMap, ListUseStatementError> {
         let mut files_visited = HashSet::new();
         let mut files_to_visit = VecDeque::new();
+        let mut use_statement_map: UseStatementMap = HashMap::new();
         let entry_point =
             get_crate_entrypoint(crate_root).ok_or(ListUseStatementError::PathIsNotACrate)?;
         let src_folder = entry_point
             .parent()
             .expect("Failed to get entry point parent folder");
-        files_to_visit.push_back(entry_point.clone());
+        files_to_visit.push_back((entry_point.clone(), "main".to_owned()));
         while let Some(file_to_visit) = files_to_visit.pop_front() {
             if files_visited.contains(&file_to_visit) {
                 continue;
             }
 
-            if !file_to_visit.exists() {
+            if !file_to_visit.0.exists() {
                 return Err(ListUseStatementError::FileNotFound);
             }
 
-            let content = read_to_string(&file_to_visit)
+            let content = read_to_string(&file_to_visit.0)
                 .map_err(|_| ListUseStatementError::FileNotReadable)?;
 
             let parsed_file =
@@ -189,23 +198,58 @@ pub mod dependencies {
 
             let mut visitor = UseVisitor::new();
             visitor.visit_file(&parsed_file);
-            for dependency in visitor.dependencies {
-                match dependency {
+            for statement in visitor
+                .dependencies
+                .iter()
+                .flat_map(|dependency| &dependency.statements)
+            {
+                match statement {
                     UseStatementType::Simple(name) => {
-                        if is_local_import(&name) {
-                            let file_to_visit = get_path_from_module_name(src_folder, &name)
-                                .ok_or(ListUseStatementError::ModuleDoesNotExists(name))?;
-                            files_to_visit.push_back(file_to_visit);
+                        if is_local_import(name) {
+                            let file_to_visit = get_path_from_module_name(src_folder, name).ok_or(
+                                ListUseStatementError::ModuleDoesNotExists(name.to_string()),
+                            )?;
+                            files_to_visit.push_back((file_to_visit, name.to_owned()));
                         }
                     }
                     UseStatementType::Alias(name, _) => todo!(),
                     UseStatementType::WildCard(name) => todo!(),
                 }
             }
+
+            let mut statements = Vec::new();
+
+            for dependency in visitor.dependencies {
+                statements.push(UseStatement {
+                    source_module: ModuleName::new(file_to_visit.1.to_owned()),
+                    target_modules: todo!(),
+                    extent: dependency.extent,
+                    normalized_statements: dependency
+                        .statements
+                        .into_iter()
+                        .map(|s| NormalizedUseStatement {
+                            module_name: ModuleName::new("main".to_owned()),
+                            statement_type: s,
+                        })
+                        .collect(),
+                });
+            }
+
+            use_statement_map.insert(
+                File(
+                    file_to_visit
+                        .0
+                        .strip_prefix(crate_root)
+                        .unwrap_or(&file_to_visit.0)
+                        .to_string_lossy()
+                        .to_string(),
+                ),
+                statements,
+            );
             files_visited.insert(file_to_visit);
         }
 
-        todo!();
+        Ok(use_statement_map)
     }
 
     fn get_path_from_module_name(src_folder: &Path, name: &str) -> Option<PathBuf> {
@@ -246,10 +290,11 @@ pub mod dependencies {
         use std::{collections::HashMap, path::Path};
 
         use pretty_assertions::assert_eq;
+        use proc_macro2::{LineColumn, Span};
 
         use crate::dependencies::{
-            Extent, File, ModuleName, NormalizedUseStatement, Position, UseStatement,
-            UseStatementType, list_use_statements,
+            Extent, File, ModuleName, NormalizedUseStatement, UseStatement, UseStatementType,
+            list_use_statements,
         };
 
         #[test]
@@ -263,8 +308,11 @@ pub mod dependencies {
                     source_module: ModuleName::new("main".to_owned()),
                     target_modules: vec![ModuleName::new("std::collections::HashMap".to_owned())],
                     extent: Extent {
-                        start: Position { line: 1, col: 1 },
-                        end: Position { line: 1, col: 31 },
+                        start: LineColumn { line: 1, column: 0 },
+                        end: LineColumn {
+                            line: 1,
+                            column: 31,
+                        },
                     },
                     normalized_statements: vec![NormalizedUseStatement {
                         module_name: ModuleName::new("main".to_owned()),
