@@ -13,7 +13,7 @@ pub mod dependencies {
     };
     use thiserror::Error;
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct ModuleName(String);
     impl ModuleName {
         fn new(name: String) -> Self {
@@ -42,7 +42,7 @@ pub mod dependencies {
         /// `use crate::log::Bar as Baz;`
         Alias(String, String),
         /// `use crate::log::*;`
-        WildCard(String),
+        WildCard,
     }
 
     #[derive(Debug, PartialEq, Eq)]
@@ -53,8 +53,7 @@ pub mod dependencies {
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
         target_modules: Vec<ModuleName>,
         /// Where in the source file the use statement is.
-        extent: Extent,
-        normalized_statements: Vec<NormalizedUseStatement>,
+        statements: Vec<UseStatementDetail>,
     }
 
     pub type UseStatements = Vec<UseStatement>;
@@ -64,20 +63,20 @@ pub mod dependencies {
 
     pub type UseStatementMap = HashMap<File, UseStatements>;
 
-    #[derive(Debug)]
-    struct UseStatementWithContext {
-        statements: Vec<UseStatementType>,
+    #[derive(Debug, PartialEq, Eq)]
+    struct UseStatementDetail {
+        items: Vec<NormalizedUseStatement>,
         extent: Extent,
     }
 
     #[derive(Debug)]
     struct UseVisitor {
-        dependencies: Vec<UseStatementWithContext>,
+        statements: Vec<UseStatementDetail>,
     }
     impl UseVisitor {
         fn new() -> Self {
             Self {
-                dependencies: Vec::new(),
+                statements: Vec::new(),
             }
         }
     }
@@ -87,8 +86,8 @@ pub mod dependencies {
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
             let tokens = node.to_token_stream();
             let items = flatten_use_tree("", &node.tree);
-            self.dependencies.push(UseStatementWithContext {
-                statements: items,
+            self.statements.push(UseStatementDetail {
+                items,
                 extent: Extent {
                     start: node.use_token.span.start(),
                     end: node.use_token.span.end(),
@@ -99,7 +98,7 @@ pub mod dependencies {
         }
     }
 
-    fn flatten_use_tree(prefix: &str, tree: &UseTree) -> Vec<UseStatementType> {
+    fn flatten_use_tree(prefix: &str, tree: &UseTree) -> Vec<NormalizedUseStatement> {
         let prefixed = |ident: &Ident| {
             if prefix.is_empty() {
                 ident.to_string()
@@ -114,17 +113,24 @@ pub mod dependencies {
             }
 
             UseTree::Name(UseName { ident, .. }) => {
-                let full_name = prefixed(ident);
-                vec![UseStatementType::Simple(full_name)]
+                vec![NormalizedUseStatement {
+                    module_name: ModuleName(prefix.to_owned()),
+                    statement_type: UseStatementType::Simple(ident.to_string()),
+                }]
             }
 
             UseTree::Rename(UseRename { ident, rename, .. }) => {
-                let full_name = prefixed(ident);
-                vec![UseStatementType::Alias(full_name, rename.to_string())]
+                vec![NormalizedUseStatement {
+                    module_name: ModuleName(prefix.to_owned()),
+                    statement_type: UseStatementType::Alias(ident.to_string(), rename.to_string()),
+                }]
             }
 
             UseTree::Glob(UseGlob { .. }) => {
-                vec![UseStatementType::WildCard(prefix.to_owned())]
+                vec![NormalizedUseStatement {
+                    module_name: ModuleName(prefix.to_owned()),
+                    statement_type: UseStatementType::WildCard,
+                }]
             }
 
             UseTree::Group(UseGroup { items, .. }) => items
@@ -199,41 +205,40 @@ pub mod dependencies {
             let mut visitor = UseVisitor::new();
             visitor.visit_file(&parsed_file);
             for statement in visitor
-                .dependencies
+                .statements
                 .iter()
-                .flat_map(|dependency| &dependency.statements)
+                .flat_map(|dependency| &dependency.items)
             {
-                match statement {
+                match &statement.statement_type {
                     UseStatementType::Simple(name) => {
-                        if is_local_import(name) {
+                        if is_local_import(&statement.module_name) {
                             let file_to_visit = get_path_from_module_name(src_folder, name).ok_or(
                                 ListUseStatementError::ModuleDoesNotExists(name.to_string()),
                             )?;
+                            dbg!(&files_to_visit);
                             files_to_visit.push_back((file_to_visit, name.to_owned()));
                         }
                     }
                     UseStatementType::Alias(name, _) => todo!(),
-                    UseStatementType::WildCard(name) => todo!(),
+                    UseStatementType::WildCard => todo!(),
                 }
             }
 
-            let mut statements = Vec::new();
+            let statements = visitor
+                .statements
+                .into_iter()
+                .map(|statement| {
+                    let UseStatementDetail { items, extent } = statement;
+                    let target_modules =
+                        items.iter().map(|item| item.module_name.clone()).collect();
 
-            for dependency in visitor.dependencies {
-                statements.push(UseStatement {
-                    source_module: ModuleName::new(file_to_visit.1.to_owned()),
-                    target_modules: todo!(),
-                    extent: dependency.extent,
-                    normalized_statements: dependency
-                        .statements
-                        .into_iter()
-                        .map(|s| NormalizedUseStatement {
-                            module_name: ModuleName::new("main".to_owned()),
-                            statement_type: s,
-                        })
-                        .collect(),
-                });
-            }
+                    UseStatement {
+                        source_module: ModuleName::new(file_to_visit.1.clone()),
+                        target_modules,
+                        statements: vec![UseStatementDetail { items, extent }],
+                    }
+                })
+                .collect();
 
             use_statement_map.insert(
                 File(
@@ -273,9 +278,9 @@ pub mod dependencies {
         None
     }
 
-    fn is_local_import(name: &str) -> bool {
+    fn is_local_import(name: &ModuleName) -> bool {
         //TODO: Read crate name and conside that local imports  ie: my_crate::..
-        name.starts_with("crate::")
+        name.0 == "crate" || name.0.starts_with("crate::")
     }
 
     pub type ModuleDependencies = HashMap<ModuleName, Vec<ModuleName>>;
@@ -290,11 +295,11 @@ pub mod dependencies {
         use std::{collections::HashMap, path::Path};
 
         use pretty_assertions::assert_eq;
-        use proc_macro2::{LineColumn, Span};
+        use proc_macro2::LineColumn;
 
         use crate::dependencies::{
-            Extent, File, ModuleName, NormalizedUseStatement, UseStatement, UseStatementType,
-            list_use_statements,
+            Extent, File, ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail,
+            UseStatementType, list_use_statements,
         };
 
         #[test]
@@ -302,24 +307,42 @@ pub mod dependencies {
             let test_project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple/");
             let res = list_use_statements(&test_project).expect("Failed to list statements");
             let mut expected = HashMap::new();
+
+            let main_module_statements_module_a = vec![UseStatementDetail {
+                items: vec![NormalizedUseStatement {
+                    module_name: ModuleName::new("crate".to_owned()),
+                    statement_type: UseStatementType::Simple("module_a".to_owned()),
+                }],
+                extent: Extent {
+                    start: LineColumn { line: 1, column: 0 },
+                    end: LineColumn { line: 1, column: 3 },
+                },
+            }];
+
+            let module_b_statements = vec![UseStatementDetail {
+                items: vec![NormalizedUseStatement {
+                    module_name: ModuleName::new("std::collections".to_owned()),
+                    statement_type: UseStatementType::Simple("HashMap".to_owned()),
+                }],
+                extent: Extent {
+                    start: LineColumn { line: 1, column: 0 },
+                    end: LineColumn { line: 1, column: 3 },
+                },
+            }];
+            expected.insert(
+                File("src/module_a/mod.rs".to_owned()),
+                vec![UseStatement {
+                    source_module: ModuleName::new("module_a".to_owned()),
+                    target_modules: vec![ModuleName::new("std::collections".to_owned())],
+                    statements: module_b_statements,
+                }],
+            );
             expected.insert(
                 File("src/main.rs".to_owned()),
                 vec![UseStatement {
                     source_module: ModuleName::new("main".to_owned()),
-                    target_modules: vec![ModuleName::new("std::collections::HashMap".to_owned())],
-                    extent: Extent {
-                        start: LineColumn { line: 1, column: 0 },
-                        end: LineColumn {
-                            line: 1,
-                            column: 31,
-                        },
-                    },
-                    normalized_statements: vec![NormalizedUseStatement {
-                        module_name: ModuleName::new("main".to_owned()),
-                        statement_type: UseStatementType::Simple(
-                            "std::collections::HashMap".to_owned(),
-                        ),
-                    }],
+                    target_modules: vec![ModuleName::new("crate".to_owned())],
+                    statements: main_module_statements_module_a,
                 }],
             );
             assert_eq!(res, expected);
