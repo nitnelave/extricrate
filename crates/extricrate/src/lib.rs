@@ -7,10 +7,10 @@ pub mod dependencies {
 
     use proc_macro2::LineColumn;
     use quote::ToTokens;
-    use syn::spanned::Spanned;
-    use syn::visit::{self, Visit};
     use syn::{
         Ident, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file,
+        spanned::Spanned,
+        visit::{self, Visit},
     };
     use thiserror::Error;
 
