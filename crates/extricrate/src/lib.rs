@@ -140,7 +140,7 @@ pub mod dependencies {
     }
 
     pub fn get_crate_entrypoint(crate_root: &Path) -> Option<PathBuf> {
-        // TODO: support custom entry point
+        // TODO: support multiple targets and custom paths different than src/main.rs or src/lib.rs
 
         let cargo_toml = crate_root.join("Cargo.toml");
         if !cargo_toml.exists() {
