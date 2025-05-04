@@ -284,7 +284,6 @@ pub mod dependencies {
     }
 
     fn is_local_import(name: &ModuleName) -> bool {
-        //TODO: Read crate name and conside that local imports  ie: my_crate::..
         name.0 == "crate" || name.0.starts_with("crate::")
     }
 
