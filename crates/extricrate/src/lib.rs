@@ -232,8 +232,7 @@ pub mod dependencies {
             let statements = visitor
                 .statements
                 .into_iter()
-                .map(|statement| {
-                    let UseStatementDetail { items, extent } = statement;
+                .map(|UseStatementDetail { items, extent }| {
                     let target_modules =
                         items.iter().map(|item| item.module_name.clone()).collect();
 
