@@ -55,7 +55,7 @@ pub mod dependencies {
     pub struct UseStatement {
         /// Where the use statement appears.
         source_module: ModuleName,
-        /// List of referenced inner modules.
+        /// List of referenced modules.
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
         target_modules: Vec<ModuleName>,
         /// Where in the source file the use statement is.
