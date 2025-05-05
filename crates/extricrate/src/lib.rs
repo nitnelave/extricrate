@@ -264,7 +264,6 @@ pub mod dependencies {
     }
 
     fn get_path_from_module_name(src_folder: &Path, name: &str) -> Option<PathBuf> {
-        // TODO: Read crate name and strip also that from the prefix ie: my_crate::..
         let relative_path = name.strip_prefix("crate::").unwrap_or(name);
         let mut base = src_folder.to_path_buf();
         for segment in relative_path.split("::") {
