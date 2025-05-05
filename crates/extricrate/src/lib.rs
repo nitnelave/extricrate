@@ -399,12 +399,11 @@ pub mod dependencies {
             let file = syn::parse_file(src).unwrap();
             let mut visitor = UseVisitor::new();
             visitor.visit_file(&file);
-            let mut names: Vec<_> = visitor.statements[0]
+            let names: Vec<_> = visitor.statements[0]
                 .items
                 .iter()
                 .map(|i| (&i.module_name, &i.statement_type))
                 .collect();
-            names.sort_by_key(|(m, _)| m.0.clone());
             assert_eq!(
                 names,
                 vec![
