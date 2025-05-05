@@ -5,7 +5,7 @@ pub mod dependencies {
     use std::fs::read_to_string;
     use std::path::{Path, PathBuf};
 
-    use proc_macro2::LineColumn;
+    use proc_macro2::Span;
     use quote::ToTokens;
     use syn::{
         Ident, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file,
@@ -28,12 +28,16 @@ pub mod dependencies {
         }
     }
 
-    #[derive(Debug, PartialEq, Eq)]
-    pub struct Extent {
-        start: LineColumn,
-        // Inclusive
-        end: LineColumn,
+    #[derive(Debug)]
+    pub struct EqSpan(Span);
+    impl PartialEq for EqSpan {
+        fn eq(&self, other: &Self) -> bool {
+            self.0.start() == other.0.start()
+                && self.0.end() == other.0.end()
+                && self.0.byte_range() == other.0.byte_range()
+        }
     }
+    impl Eq for EqSpan {}
 
     /// A single, separate use statement.
     #[derive(Debug, PartialEq, Eq)]
@@ -73,7 +77,7 @@ pub mod dependencies {
     #[derive(Debug, PartialEq, Eq)]
     struct UseStatementDetail {
         items: Vec<NormalizedUseStatement>,
-        extent: Extent,
+        extent: EqSpan,
     }
 
     #[derive(Debug)]
@@ -95,10 +99,7 @@ pub mod dependencies {
             let items = flatten_use_tree("", &node.tree);
             self.statements.push(UseStatementDetail {
                 items,
-                extent: Extent {
-                    start: node.span().start(),
-                    end: node.span().end(),
-                },
+                extent: EqSpan(node.span()),
             });
 
             visit::visit_item_use(self, node);
@@ -296,66 +297,65 @@ pub mod dependencies {
 
     #[cfg(test)]
     mod tests {
-        use std::{collections::HashMap, path::Path};
+        use std::path::Path;
 
         use pretty_assertions::assert_eq;
         use proc_macro2::LineColumn;
 
         use crate::dependencies::{
-            Extent, File, NormalizedUseStatement, UseStatement, UseStatementDetail,
-            UseStatementType, list_use_statements,
+            File, NormalizedUseStatement, UseStatementType, list_use_statements,
         };
 
         #[test]
         fn get_simple_dependency() {
             let test_project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple/");
             let res = list_use_statements(&test_project).expect("Failed to list statements");
-            let mut expected = HashMap::new();
 
-            let main_module_statements_module_a = UseStatementDetail {
-                items: vec![NormalizedUseStatement {
+            let main_statement = &res.get(&File("src/main.rs".to_owned())).unwrap()[0];
+            let module_a_statement = &res.get(&File("src/module_a/mod.rs".to_owned())).unwrap()[0];
+            assert_eq!(main_statement.source_module, "main".into());
+            assert_eq!(main_statement.target_modules, vec!["crate".into()]);
+            assert_eq!(
+                main_statement.statement.extent.0.start(),
+                LineColumn { line: 1, column: 0 }
+            );
+            assert_eq!(
+                main_statement.statement.extent.0.end(),
+                LineColumn {
+                    line: 1,
+                    column: 20
+                }
+            );
+            assert_eq!(
+                main_statement.statement.items[0],
+                NormalizedUseStatement {
                     module_name: "crate".into(),
                     statement_type: UseStatementType::Simple("module_a".to_owned()),
-                }],
-                extent: Extent {
-                    start: LineColumn { line: 1, column: 0 },
-                    end: LineColumn {
-                        line: 1,
-                        column: 20,
-                    },
-                },
-            };
-
-            let module_b_statements = UseStatementDetail {
-                items: vec![NormalizedUseStatement {
+                }
+            );
+            assert_eq!(module_a_statement.source_module, "module_a".into());
+            assert_eq!(
+                module_a_statement.target_modules,
+                vec!["std::collections".into()]
+            );
+            assert_eq!(
+                module_a_statement.statement.extent.0.start(),
+                LineColumn { line: 1, column: 0 }
+            );
+            assert_eq!(
+                module_a_statement.statement.extent.0.end(),
+                LineColumn {
+                    line: 1,
+                    column: 30
+                }
+            );
+            assert_eq!(
+                module_a_statement.statement.items[0],
+                NormalizedUseStatement {
                     module_name: "std::collections".into(),
                     statement_type: UseStatementType::Simple("HashMap".to_owned()),
-                }],
-                extent: Extent {
-                    start: LineColumn { line: 1, column: 0 },
-                    end: LineColumn {
-                        line: 1,
-                        column: 30,
-                    },
-                },
-            };
-            expected.insert(
-                File("src/module_a/mod.rs".to_owned()),
-                vec![UseStatement {
-                    source_module: "module_a".into(),
-                    target_modules: vec!["std::collections".into()],
-                    statement: module_b_statements,
-                }],
+                }
             );
-            expected.insert(
-                File("src/main.rs".to_owned()),
-                vec![UseStatement {
-                    source_module: "main".into(),
-                    target_modules: vec!["crate".into()],
-                    statement: main_module_statements_module_a,
-                }],
-            );
-            assert_eq!(res, expected);
         }
     }
 }
