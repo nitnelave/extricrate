@@ -301,13 +301,15 @@ pub mod dependencies {
 
         use pretty_assertions::assert_eq;
         use proc_macro2::LineColumn;
+        use syn::visit::Visit;
 
         use crate::dependencies::{
-            File, NormalizedUseStatement, UseStatementType, list_use_statements,
+            File, ModuleName, NormalizedUseStatement, UseStatementType, UseVisitor,
+            list_use_statements,
         };
 
         #[test]
-        fn get_simple_dependency() {
+        fn gets_a_simple_dependency() {
             let test_project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple/");
             let res = list_use_statements(&test_project).expect("Failed to list statements");
 
@@ -355,6 +357,70 @@ pub mod dependencies {
                     module_name: "std::collections".into(),
                     statement_type: UseStatementType::Simple("HashMap".to_owned()),
                 }
+            );
+        }
+
+        #[test]
+        fn flattens_alias() {
+            let src = "use crate::foo::Bar as Baz;";
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = UseVisitor::new();
+            visitor.visit_file(&file);
+            let items = &visitor.statements[0].items;
+            assert_eq!(items.len(), 1);
+            assert_eq!(
+                items[0],
+                NormalizedUseStatement {
+                    module_name: "crate::foo".into(),
+                    statement_type: UseStatementType::Alias("Bar".into(), "Baz".into()),
+                }
+            );
+        }
+
+        #[test]
+        fn flattens_wildcard() {
+            let src = "use crate::foo::*;";
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = UseVisitor::new();
+            visitor.visit_file(&file);
+            let items = &visitor.statements[0].items;
+            assert_eq!(
+                items,
+                &vec![NormalizedUseStatement {
+                    module_name: "crate::foo".into(),
+                    statement_type: UseStatementType::WildCard,
+                }]
+            );
+        }
+
+        #[test]
+        fn flattens_grouped() {
+            let src = "use crate::{foo, bar::{baz, qux}};";
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = UseVisitor::new();
+            visitor.visit_file(&file);
+            let mut names: Vec<_> = visitor.statements[0]
+                .items
+                .iter()
+                .map(|i| (&i.module_name, &i.statement_type))
+                .collect();
+            names.sort_by_key(|(m, _)| m.0.clone());
+            assert_eq!(
+                names,
+                vec![
+                    (
+                        &ModuleName("crate".to_owned()),
+                        &UseStatementType::Simple("foo".into())
+                    ),
+                    (
+                        &ModuleName("crate::bar".to_owned()),
+                        &UseStatementType::Simple("baz".into())
+                    ),
+                    (
+                        &ModuleName("crate::bar".to_owned()),
+                        &UseStatementType::Simple("qux".into())
+                    ),
+                ]
             );
         }
     }
