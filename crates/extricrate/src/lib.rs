@@ -8,9 +8,9 @@ pub mod dependencies {
 
     use proc_macro2::Span;
     use quote::ToTokens;
-    use syn::ItemMod;
     use syn::{
-        Ident, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file,
+        Ident, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
+        parse_file,
         spanned::Spanned,
         visit::{self, Visit},
     };
