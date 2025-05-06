@@ -268,7 +268,6 @@ pub mod dependencies {
                         let target_modules =
                             items.iter().map(|item| item.module_name.clone()).collect();
 
-                        dbg!(&file_to_visit);
                         UseStatement {
                             // TODO: this is not the correct module if there is a scoped mod in the file
                             source_module: file_to_visit
