@@ -3,10 +3,12 @@
 pub mod dependencies {
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs::read_to_string;
+    use std::iter;
     use std::path::{Path, PathBuf};
 
     use proc_macro2::Span;
     use quote::ToTokens;
+    use syn::ItemMod;
     use syn::{
         Ident, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree, parse_file,
         spanned::Spanned,
@@ -64,29 +66,51 @@ pub mod dependencies {
     pub type UseStatementMap = HashMap<File, UseStatements>;
 
     #[derive(Debug)]
+    struct ModStatement {
+        ident: Ident,
+        span: Span,
+    }
+
+    #[derive(Debug)]
     struct UseStatementDetail {
         items: Vec<NormalizedUseStatement>,
         span: Span,
     }
 
     #[derive(Debug)]
-    struct UseVisitor {
-        statements: Vec<UseStatementDetail>,
+    struct Visitor {
+        use_statements: Vec<UseStatementDetail>,
+        mod_statements: Vec<ModStatement>,
     }
-    impl UseVisitor {
+
+    #[derive(Debug)]
+    struct FileToVisit {
+        file: PathBuf,
+        module_ancestors: Vec<String>,
+    }
+
+    impl Visitor {
         fn new() -> Self {
             Self {
-                statements: Vec::new(),
+                use_statements: Vec::new(),
+                mod_statements: Vec::new(),
             }
         }
     }
 
     // TODO: Visit also `mod` nodes, otherwise we would be missing some modules
-    impl<'ast> Visit<'ast> for UseVisitor {
+    impl<'ast> Visit<'ast> for Visitor {
+        fn visit_item_mod(&mut self, node: &'ast ItemMod) {
+            self.mod_statements.push(ModStatement {
+                span: node.span(),
+                ident: node.ident.to_owned(),
+            });
+        }
+
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
             let tokens = node.to_token_stream();
             let items = flatten_use_tree("", &node.tree);
-            self.statements.push(UseStatementDetail {
+            self.use_statements.push(UseStatementDetail {
                 items,
                 span: node.span(),
             });
@@ -171,6 +195,21 @@ pub mod dependencies {
         None
     }
 
+    fn mod_to_path(crate_root: &Path, ancestors: &[String], ident: &Ident) -> Option<PathBuf> {
+        let ident = ident.to_string();
+        let mut root_path = crate_root.join("src");
+        root_path.extend(ancestors);
+
+        let file_module = root_path.join(format!("{}.rs", ident));
+        let folder_module = root_path.join(&ident).join("mod.rs");
+        if crate_root.join(&file_module).exists() {
+            return Some(file_module);
+        } else if crate_root.join(&folder_module).exists() {
+            return Some(folder_module);
+        }
+        None
+    }
+
     /// List all the `use` statements in the crate, by file/module.
     pub fn list_use_statements(
         crate_root: &Path,
@@ -183,45 +222,43 @@ pub mod dependencies {
         let src_folder = entry_point
             .parent()
             .expect("Failed to get entry point parent folder");
-        files_to_visit.push_back((entry_point.clone(), "main".to_owned()));
+        files_to_visit.push_back(FileToVisit {
+            file: entry_point.clone(),
+            module_ancestors: vec![],
+        });
         while let Some(file_to_visit) = files_to_visit.pop_front() {
-            if files_visited.contains(&file_to_visit) {
+            if files_visited.contains(&file_to_visit.file) {
                 continue;
             }
 
-            if !file_to_visit.0.exists() {
+            if !file_to_visit.file.exists() {
                 return Err(ListUseStatementError::FileNotFound);
             }
 
-            let content = read_to_string(&file_to_visit.0)
+            let content = read_to_string(&file_to_visit.file)
                 .map_err(|_| ListUseStatementError::FileNotReadable)?;
 
             let parsed_file =
                 parse_file(&content).map_err(|_| ListUseStatementError::FileNotParsable)?;
 
-            let mut visitor = UseVisitor::new();
+            let mut visitor = Visitor::new();
             visitor.visit_file(&parsed_file);
-            for statement in visitor
-                .statements
-                .iter()
-                .flat_map(|dependency| &dependency.items)
-            {
-                match &statement.statement_type {
-                    UseStatementType::Simple(name) => {
-                        if is_local_import(&statement.module_name) {
-                            let file_to_visit = get_path_from_module_name(src_folder, name).ok_or(
-                                ListUseStatementError::ModuleDoesNotExists(name.to_string()),
-                            )?;
-                            files_to_visit.push_back((file_to_visit, name.to_owned()));
-                        }
-                    }
-                    UseStatementType::Alias(name, _) => todo!(),
-                    UseStatementType::WildCard => todo!(),
-                }
-            }
 
+            files_to_visit.extend(visitor.mod_statements.iter().filter_map(|s| {
+                mod_to_path(crate_root, &file_to_visit.module_ancestors, &s.ident).map(|file| {
+                    FileToVisit {
+                        file,
+                        module_ancestors: file_to_visit
+                            .module_ancestors
+                            .iter()
+                            .cloned()
+                            .chain(iter::once(s.ident.to_string()))
+                            .collect(),
+                    }
+                })
+            }));
             let statements = visitor
-                .statements
+                .use_statements
                 .into_iter()
                 .map(
                     |UseStatementDetail {
@@ -231,9 +268,15 @@ pub mod dependencies {
                         let target_modules =
                             items.iter().map(|item| item.module_name.clone()).collect();
 
+                        dbg!(&file_to_visit);
                         UseStatement {
                             // TODO: this is not the correct module if there is a scoped mod in the file
-                            source_module: file_to_visit.1.clone().into(),
+                            source_module: file_to_visit
+                                .module_ancestors
+                                .last()
+                                .unwrap_or(&"".to_owned())
+                                .clone()
+                                .into(),
                             target_modules,
                             statement: UseStatementDetail {
                                 items,
@@ -247,38 +290,18 @@ pub mod dependencies {
             use_statement_map.insert(
                 File(
                     file_to_visit
-                        .0
+                        .file
                         .strip_prefix(crate_root)
-                        .unwrap_or(&file_to_visit.0)
+                        .unwrap_or(&file_to_visit.file)
                         .to_string_lossy()
                         .to_string(),
                 ),
                 statements,
             );
-            files_visited.insert(file_to_visit);
+            files_visited.insert(file_to_visit.file);
         }
 
         Ok(use_statement_map)
-    }
-
-    fn get_path_from_module_name(src_folder: &Path, name: &str) -> Option<PathBuf> {
-        let relative_path = name.strip_prefix("crate::").unwrap_or(name);
-        let mut base = src_folder.to_path_buf();
-        for segment in relative_path.split("::") {
-            base.push(segment);
-        }
-
-        let mut mod_rs = base.clone().join("mod");
-        mod_rs.set_extension("rs");
-        if mod_rs.exists() {
-            return Some(mod_rs);
-        }
-
-        base.set_extension("rs");
-        if base.exists() {
-            return Some(base);
-        }
-        None
     }
 
     fn is_local_import(name: &ModuleName) -> bool {
@@ -301,7 +324,7 @@ pub mod dependencies {
         use syn::visit::Visit;
 
         use crate::dependencies::{
-            File, ModuleName, NormalizedUseStatement, UseStatementType, UseVisitor,
+            File, ModuleName, NormalizedUseStatement, UseStatementType, Visitor,
             list_use_statements,
         };
 
@@ -312,16 +335,16 @@ pub mod dependencies {
 
             let main_statement = &res.get(&File("src/main.rs".to_owned())).unwrap()[0];
             let module_a_statement = &res.get(&File("src/module_a/mod.rs".to_owned())).unwrap()[0];
-            assert_eq!(main_statement.source_module, "main".into());
+            assert_eq!(main_statement.source_module, "".into());
             assert_eq!(main_statement.target_modules, vec!["crate".into()]);
             assert_eq!(
                 main_statement.statement.span.start(),
-                LineColumn { line: 1, column: 0 }
+                LineColumn { line: 2, column: 0 }
             );
             assert_eq!(
                 main_statement.statement.span.end(),
                 LineColumn {
-                    line: 1,
+                    line: 2,
                     column: 20
                 }
             );
@@ -361,9 +384,9 @@ pub mod dependencies {
         fn flattens_alias() {
             let src = "use crate::foo::Bar as Baz;";
             let file = syn::parse_file(src).unwrap();
-            let mut visitor = UseVisitor::new();
+            let mut visitor = Visitor::new();
             visitor.visit_file(&file);
-            let items = &visitor.statements[0].items;
+            let items = &visitor.use_statements[0].items;
             assert_eq!(items.len(), 1);
             assert_eq!(
                 items[0],
@@ -378,9 +401,9 @@ pub mod dependencies {
         fn flattens_wildcard() {
             let src = "use crate::foo::*;";
             let file = syn::parse_file(src).unwrap();
-            let mut visitor = UseVisitor::new();
+            let mut visitor = Visitor::new();
             visitor.visit_file(&file);
-            let items = &visitor.statements[0].items;
+            let items = &visitor.use_statements[0].items;
             assert_eq!(
                 items,
                 &vec![NormalizedUseStatement {
@@ -394,9 +417,9 @@ pub mod dependencies {
         fn flattens_grouped() {
             let src = "use crate::{foo, bar::{baz, qux}};";
             let file = syn::parse_file(src).unwrap();
-            let mut visitor = UseVisitor::new();
+            let mut visitor = Visitor::new();
             visitor.visit_file(&file);
-            let names: Vec<_> = visitor.statements[0]
+            let names: Vec<_> = visitor.use_statements[0]
                 .items
                 .iter()
                 .map(|i| (&i.module_name, &i.statement_type))
