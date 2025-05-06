@@ -28,17 +28,6 @@ pub mod dependencies {
         }
     }
 
-    #[derive(Debug)]
-    pub struct EqSpan(Span);
-    impl PartialEq for EqSpan {
-        fn eq(&self, other: &Self) -> bool {
-            self.0.start() == other.0.start()
-                && self.0.end() == other.0.end()
-                && self.0.byte_range() == other.0.byte_range()
-        }
-    }
-    impl Eq for EqSpan {}
-
     /// A single, separate use statement.
     #[derive(Debug, PartialEq, Eq)]
     pub struct NormalizedUseStatement {
@@ -56,7 +45,7 @@ pub mod dependencies {
         WildCard,
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug)]
     pub struct UseStatement {
         /// Where the use statement appears.
         source_module: ModuleName,
@@ -74,10 +63,10 @@ pub mod dependencies {
 
     pub type UseStatementMap = HashMap<File, UseStatements>;
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug)]
     struct UseStatementDetail {
         items: Vec<NormalizedUseStatement>,
-        extent: EqSpan,
+        span: Span,
     }
 
     #[derive(Debug)]
@@ -99,7 +88,7 @@ pub mod dependencies {
             let items = flatten_use_tree("", &node.tree);
             self.statements.push(UseStatementDetail {
                 items,
-                extent: EqSpan(node.span()),
+                span: node.span(),
             });
 
             visit::visit_item_use(self, node);
@@ -234,17 +223,25 @@ pub mod dependencies {
             let statements = visitor
                 .statements
                 .into_iter()
-                .map(|UseStatementDetail { items, extent }| {
-                    let target_modules =
-                        items.iter().map(|item| item.module_name.clone()).collect();
+                .map(
+                    |UseStatementDetail {
+                         items,
+                         span: extent,
+                     }| {
+                        let target_modules =
+                            items.iter().map(|item| item.module_name.clone()).collect();
 
-                    UseStatement {
-                        // TODO: this is not the correct module if there is a scoped mod in the file
-                        source_module: file_to_visit.1.clone().into(),
-                        target_modules,
-                        statement: UseStatementDetail { items, extent },
-                    }
-                })
+                        UseStatement {
+                            // TODO: this is not the correct module if there is a scoped mod in the file
+                            source_module: file_to_visit.1.clone().into(),
+                            target_modules,
+                            statement: UseStatementDetail {
+                                items,
+                                span: extent,
+                            },
+                        }
+                    },
+                )
                 .collect();
 
             use_statement_map.insert(
@@ -318,22 +315,22 @@ pub mod dependencies {
             assert_eq!(main_statement.source_module, "main".into());
             assert_eq!(main_statement.target_modules, vec!["crate".into()]);
             assert_eq!(
-                main_statement.statement.extent.0.start(),
+                main_statement.statement.span.start(),
                 LineColumn { line: 1, column: 0 }
             );
             assert_eq!(
-                main_statement.statement.extent.0.end(),
+                main_statement.statement.span.end(),
                 LineColumn {
                     line: 1,
                     column: 20
                 }
             );
             assert_eq!(
-                main_statement.statement.items[0],
-                NormalizedUseStatement {
+                main_statement.statement.items,
+                vec![NormalizedUseStatement {
                     module_name: "crate".into(),
                     statement_type: UseStatementType::Simple("module_a".to_owned()),
-                }
+                }]
             );
             assert_eq!(module_a_statement.source_module, "module_a".into());
             assert_eq!(
@@ -341,22 +338,22 @@ pub mod dependencies {
                 vec!["std::collections".into()]
             );
             assert_eq!(
-                module_a_statement.statement.extent.0.start(),
+                module_a_statement.statement.span.start(),
                 LineColumn { line: 1, column: 0 }
             );
             assert_eq!(
-                module_a_statement.statement.extent.0.end(),
+                module_a_statement.statement.span.end(),
                 LineColumn {
                     line: 1,
                     column: 30
                 }
             );
             assert_eq!(
-                module_a_statement.statement.items[0],
-                NormalizedUseStatement {
+                module_a_statement.statement.items,
+                vec![NormalizedUseStatement {
                     module_name: "std::collections".into(),
                     statement_type: UseStatementType::Simple("HashMap".to_owned()),
-                }
+                }]
             );
         }
 
