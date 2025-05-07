@@ -186,26 +186,29 @@ pub mod dependencies {
         PathIsNotACrate,
         #[error("linked module does not exists: {0}")]
         ModuleDoesNotExists(String),
+
+        #[error("crate entrypoint not found")]
+        CrateEntrypointNotFound,
     }
 
-    fn get_crate_entrypoint(crate_root: &Path) -> Option<PathBuf> {
+    fn get_crate_entrypoint(crate_root: &Path) -> Result<PathBuf, ListUseStatementError> {
         // TODO: support multiple targets and custom paths different than src/main.rs or src/lib.rs
 
         let cargo_toml = crate_root.join("Cargo.toml");
         if !cargo_toml.exists() {
-            return None;
+            return Err(ListUseStatementError::PathIsNotACrate);
         }
 
         let main_rs = crate_root.join(Path::new("src/main.rs"));
         if main_rs.exists() {
-            return Some(main_rs);
+            return Ok(main_rs);
         }
 
         let lib_rs = crate_root.join(Path::new("src/lib.rs"));
         if lib_rs.exists() {
-            return Some(lib_rs);
+            return Ok(lib_rs);
         };
-        None
+        Err(ListUseStatementError::CrateEntrypointNotFound)
     }
 
     fn mod_to_path(crate_root: &Path, ancestors: &[String], ident: &Ident) -> Option<PathBuf> {
@@ -230,8 +233,7 @@ pub mod dependencies {
         let mut files_visited = HashSet::new();
         let mut files_to_visit = VecDeque::new();
         let mut use_statement_map: UseStatementMap = HashMap::new();
-        let entry_point =
-            get_crate_entrypoint(crate_root).ok_or(ListUseStatementError::PathIsNotACrate)?;
+        let entry_point = get_crate_entrypoint(crate_root)?;
         let src_folder = entry_point
             .parent()
             .expect("Failed to get entry point parent folder");
