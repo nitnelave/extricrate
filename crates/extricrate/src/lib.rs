@@ -299,8 +299,8 @@ pub mod dependencies {
                             source_module: file_to_visit
                                 .module_ancestors
                                 .last()
-                                .unwrap_or(&"".to_owned())
                                 .clone()
+                                .unwrap_or_default()
                                 .into(),
                             target_modules,
                             statement: UseStatementDetail {
