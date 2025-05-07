@@ -360,6 +360,9 @@ pub mod dependencies {
 
             let main_statement = &res.get(&File("src/main.rs".to_owned())).unwrap()[0];
             let module_a_statement = &res.get(&File("src/module_a/mod.rs".to_owned())).unwrap()[0];
+            let module_b_statement = &res
+                .get(&File("src/module_a/module_b.rs".to_owned()))
+                .unwrap()[0];
             assert_eq!(main_statement.source_module, "".into());
             assert_eq!(main_statement.target_modules, vec!["crate".into()]);
             assert_eq!(
@@ -401,6 +404,23 @@ pub mod dependencies {
                 vec![NormalizedUseStatement {
                     module_name: "std::collections".into(),
                     statement_type: UseStatementType::Simple("HashMap".to_owned()),
+                }]
+            );
+            assert_eq!(module_b_statement.source_module, "module_b".into());
+            assert_eq!(module_b_statement.target_modules, vec!["".into()]);
+            assert_eq!(
+                module_b_statement.statement.span.start(),
+                LineColumn { line: 1, column: 0 }
+            );
+            assert_eq!(
+                module_b_statement.statement.span.end(),
+                LineColumn { line: 1, column: 8 }
+            );
+            assert_eq!(
+                module_b_statement.statement.items,
+                vec![NormalizedUseStatement {
+                    module_name: "".into(),
+                    statement_type: UseStatementType::Simple("foo".to_owned()),
                 }]
             );
         }
