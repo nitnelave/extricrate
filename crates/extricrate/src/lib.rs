@@ -104,7 +104,6 @@ pub mod dependencies {
         }
     }
 
-    // TODO: Visit also `mod` nodes, otherwise we would be missing some modules
     impl<'ast> Visit<'ast> for Visitor {
         fn visit_item_mod(&mut self, node: &'ast ItemMod) {
             if let Some(content) = node.content.clone() {
