@@ -224,9 +224,9 @@ pub mod dependencies {
 
         let file_module = root_path.join(format!("{}.rs", ident));
         let folder_module = root_path.join(&ident).join("mod.rs");
-        if crate_root.join(&file_module).exists() {
+        if file_module.exists() {
             return Ok(file_module);
-        } else if crate_root.join(&folder_module).exists() {
+        } else if folder_module.exists() {
             return Ok(folder_module);
         }
         Err(ListUseStatementError::SourceFileForModuleNotFound(ident))
@@ -300,7 +300,7 @@ pub mod dependencies {
                             source_module: file_to_visit
                                 .module_ancestors
                                 .last()
-                                .clone()
+                                .cloned()
                                 .unwrap_or_default()
                                 .into(),
                             target_modules,
