@@ -3,13 +3,12 @@
 pub mod dependencies {
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs::read_to_string;
-    use std::iter;
     use std::path::{Path, PathBuf};
 
     use proc_macro2::Span;
     use quote::ToTokens;
     use syn::{
-        Ident, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
+        Ident, Item, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
         parse_file,
         spanned::Spanned,
         visit::{self, Visit},
@@ -66,9 +65,16 @@ pub mod dependencies {
     pub type UseStatementMap = HashMap<File, UseStatements>;
 
     #[derive(Debug)]
-    struct ModStatement {
-        ident: Ident,
-        span: Span,
+    enum ModStatement {
+        External {
+            ident: Ident,
+            span: Span,
+        },
+        Inline {
+            ident: Ident,
+            span: Span,
+            content: Vec<Item>,
+        },
     }
 
     #[derive(Debug)]
@@ -101,10 +107,18 @@ pub mod dependencies {
     // TODO: Visit also `mod` nodes, otherwise we would be missing some modules
     impl<'ast> Visit<'ast> for Visitor {
         fn visit_item_mod(&mut self, node: &'ast ItemMod) {
-            self.mod_statements.push(ModStatement {
-                span: node.span(),
-                ident: node.ident.to_owned(),
-            });
+            if let Some(content) = node.content.clone() {
+                self.mod_statements.push(ModStatement::Inline {
+                    span: node.span(),
+                    ident: node.ident.to_owned(),
+                    content: content.1,
+                })
+            } else {
+                self.mod_statements.push(ModStatement::External {
+                    span: node.span(),
+                    ident: node.ident.to_owned(),
+                });
+            }
         }
 
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
@@ -244,18 +258,22 @@ pub mod dependencies {
             let mut visitor = Visitor::new();
             visitor.visit_file(&parsed_file);
 
-            files_to_visit.extend(visitor.mod_statements.iter().filter_map(|s| {
-                mod_to_path(crate_root, &file_to_visit.module_ancestors, &s.ident).map(|file| {
-                    FileToVisit {
-                        file,
-                        module_ancestors: file_to_visit
-                            .module_ancestors
-                            .iter()
-                            .cloned()
-                            .chain(iter::once(s.ident.to_string()))
-                            .collect(),
-                    }
-                })
+            files_to_visit.extend(visitor.mod_statements.iter().filter_map(|s| match s {
+                ModStatement::External { ident, span } => {
+                    mod_to_path(crate_root, &file_to_visit.module_ancestors, ident).map(|file| {
+                        let mut new_ancestors = file_to_visit.module_ancestors.clone();
+                        new_ancestors.push(ident.to_string());
+                        FileToVisit {
+                            file,
+                            module_ancestors: new_ancestors,
+                        }
+                    })
+                }
+                ModStatement::Inline {
+                    ident,
+                    span,
+                    content,
+                } => todo!(),
             }));
             let statements = visitor
                 .use_statements
