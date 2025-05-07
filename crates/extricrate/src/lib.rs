@@ -186,9 +186,10 @@ pub mod dependencies {
         PathIsNotACrate,
         #[error("linked module does not exists: {0}")]
         ModuleDoesNotExists(String),
-
         #[error("crate entrypoint not found")]
         CrateEntrypointNotFound,
+        #[error("Could not find source file for module ${0}")]
+        SourceFileForModuleNotFound(String),
     }
 
     fn get_crate_entrypoint(crate_root: &Path) -> Result<PathBuf, ListUseStatementError> {
@@ -211,7 +212,11 @@ pub mod dependencies {
         Err(ListUseStatementError::CrateEntrypointNotFound)
     }
 
-    fn mod_to_path(crate_root: &Path, ancestors: &[String], ident: &Ident) -> Option<PathBuf> {
+    fn mod_to_path(
+        crate_root: &Path,
+        ancestors: &[String],
+        ident: &Ident,
+    ) -> Result<PathBuf, ListUseStatementError> {
         let ident = ident.to_string();
         let mut root_path = crate_root.join("src");
         root_path.extend(ancestors);
@@ -219,11 +224,11 @@ pub mod dependencies {
         let file_module = root_path.join(format!("{}.rs", ident));
         let folder_module = root_path.join(&ident).join("mod.rs");
         if crate_root.join(&file_module).exists() {
-            return Some(file_module);
+            return Ok(file_module);
         } else if crate_root.join(&folder_module).exists() {
-            return Some(folder_module);
+            return Ok(folder_module);
         }
-        None
+        Err(ListUseStatementError::SourceFileForModuleNotFound(ident))
     }
 
     /// List all the `use` statements in the crate, by file/module.
@@ -259,23 +264,25 @@ pub mod dependencies {
             let mut visitor = Visitor::new();
             visitor.visit_file(&parsed_file);
 
-            files_to_visit.extend(visitor.mod_statements.iter().filter_map(|s| match s {
-                ModStatement::External { ident, span } => {
-                    mod_to_path(crate_root, &file_to_visit.module_ancestors, ident).map(|file| {
+            for mod_statement in visitor.mod_statements {
+                match mod_statement {
+                    ModStatement::External { ident, span } => {
+                        let file =
+                            mod_to_path(crate_root, &file_to_visit.module_ancestors, &ident)?;
                         let mut new_ancestors = file_to_visit.module_ancestors.clone();
                         new_ancestors.push(ident.to_string());
-                        FileToVisit {
+                        files_to_visit.push_back(FileToVisit {
                             file,
                             module_ancestors: new_ancestors,
-                        }
-                    })
+                        })
+                    }
+                    ModStatement::Inline {
+                        ident,
+                        span,
+                        content,
+                    } => todo!(),
                 }
-                ModStatement::Inline {
-                    ident,
-                    span,
-                    content,
-                } => todo!(),
-            }));
+            }
             let statements = visitor
                 .use_statements
                 .into_iter()
