@@ -297,10 +297,10 @@ pub mod dependencies {
 
                         UseStatement {
                             // TODO: this is not the correct module if there is a scoped mod in the file
-                            source_module: file_to_visit
-                                .module_ancestors
-                                .last()
-                                .cloned()
+                            source_module: (!file_to_visit.module_ancestors.is_empty())
+                                .then(|| {
+                                    format!("crate::{}", file_to_visit.module_ancestors.join("::"))
+                                })
                                 .unwrap_or_default()
                                 .into(),
                             target_modules,
@@ -384,7 +384,7 @@ pub mod dependencies {
                     statement_type: UseStatementType::Simple("module_a".to_owned()),
                 }]
             );
-            assert_eq!(module_a_statement.source_module, "module_a".into());
+            assert_eq!(module_a_statement.source_module, "crate::module_a".into());
             assert_eq!(
                 module_a_statement.target_modules,
                 vec!["std::collections".into()]
@@ -407,7 +407,10 @@ pub mod dependencies {
                     statement_type: UseStatementType::Simple("HashMap".to_owned()),
                 }]
             );
-            assert_eq!(module_b_statement.source_module, "module_b".into());
+            assert_eq!(
+                module_b_statement.source_module,
+                "crate::module_a::module_b".into()
+            );
             assert_eq!(module_b_statement.target_modules, vec!["".into()]);
             assert_eq!(
                 module_b_statement.statement.span.start(),
