@@ -212,6 +212,7 @@ pub mod dependencies {
         Err(ListUseStatementError::CrateEntrypointNotFound)
     }
 
+    // NOTE: path attribute on mod is currently not supported
     fn mod_to_path(
         crate_root: &Path,
         ancestors: &[String],
