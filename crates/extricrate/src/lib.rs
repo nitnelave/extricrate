@@ -295,7 +295,7 @@ pub mod dependencies {
                                         .join("::")
                                 )
                             })
-                            .unwrap_or_default()
+                            .unwrap_or_else(|| "crate".to_string())
                             .into(),
                             target_modules,
                             statement: UseStatementDetail {
