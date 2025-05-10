@@ -80,6 +80,7 @@ pub mod dependencies {
         use_statements: Vec<UseStatementDetail>,
         mod_statements: Vec<ModStatement>,
         mod_stack: Vec<Ident>,
+        ancestors: Vec<String>,
     }
 
     #[derive(Debug)]
@@ -89,12 +90,21 @@ pub mod dependencies {
     }
 
     impl Visitor {
-        fn new() -> Self {
+        fn new(ancestors: &[String]) -> Self {
             Self {
                 mod_stack: Vec::new(),
                 use_statements: Vec::new(),
                 mod_statements: Vec::new(),
+                ancestors: ancestors.to_owned(),
             }
+        }
+        fn with_defaults() -> Self {
+            Self::new(&[])
+        }
+    }
+    impl Default for Visitor {
+        fn default() -> Self {
+            Visitor::with_defaults()
         }
     }
 
@@ -254,7 +264,7 @@ pub mod dependencies {
             let parsed_file =
                 parse_file(&content).map_err(|_| ListUseStatementError::FileNotParsable)?;
 
-            let mut visitor = Visitor::new();
+            let mut visitor = Visitor::new(&file_to_visit.module_ancestors);
             visitor.visit_file(&parsed_file);
 
             for mod_statement in visitor.mod_statements {
@@ -479,7 +489,7 @@ pub mod dependencies {
         fn flattens_alias() {
             let src = "use crate::foo::Bar as Baz;";
             let file = syn::parse_file(src).unwrap();
-            let mut visitor = Visitor::new();
+            let mut visitor = Visitor::default();
             visitor.visit_file(&file);
             let items = &visitor.use_statements[0].items;
             assert_eq!(items.len(), 1);
@@ -496,7 +506,7 @@ pub mod dependencies {
         fn flattens_wildcard() {
             let src = "use crate::foo::*;";
             let file = syn::parse_file(src).unwrap();
-            let mut visitor = Visitor::new();
+            let mut visitor = Visitor::default();
             visitor.visit_file(&file);
             let items = &visitor.use_statements[0].items;
             assert_eq!(
@@ -512,7 +522,7 @@ pub mod dependencies {
         fn flattens_grouped() {
             let src = "use crate::{foo, bar::{baz, qux}};";
             let file = syn::parse_file(src).unwrap();
-            let mut visitor = Visitor::new();
+            let mut visitor = Visitor::default();
             visitor.visit_file(&file);
             let names: Vec<_> = visitor.use_statements[0]
                 .items
@@ -535,6 +545,61 @@ pub mod dependencies {
                         &UseStatementType::Simple("qux".into())
                     ),
                 ]
+            );
+        }
+
+        #[test]
+        fn super_import_resolved() {
+            let src = r#"
+            mod module_a {
+                mod module_b {
+                        use super::module_c::Foo;
+                    }
+                }
+            "#;
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = Visitor::default();
+            visitor.visit_file(&file);
+
+            assert_eq!(visitor.use_statements.len(), 1);
+
+            let detail = &visitor.use_statements[0];
+            let items = &detail.items;
+            assert_eq!(items.len(), 1);
+
+            assert_eq!(
+                items[0],
+                NormalizedUseStatement {
+                    module_name: "crate::module_a::module_c".into(),
+                    statement_type: UseStatementType::Simple("Foo".into()),
+                }
+            );
+        }
+
+        #[test]
+        fn self_import_resolved() {
+            let src = r#"
+                mod module_a {
+                    mod module_b {
+                        use self::module_c::Foo;
+                    }
+                }
+            "#;
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = Visitor::default();
+            visitor.visit_file(&file);
+
+            assert_eq!(visitor.use_statements.len(), 1);
+
+            let items = &visitor.use_statements[0].items;
+            assert_eq!(items.len(), 1);
+
+            assert_eq!(
+                items[0],
+                NormalizedUseStatement {
+                    module_name: "crate::module_a::module_b::module_c".into(),
+                    statement_type: UseStatementType::Simple("Foo".into()),
+                }
             );
         }
     }
