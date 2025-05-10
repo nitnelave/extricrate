@@ -44,11 +44,11 @@ pub mod dependencies {
                         format!("{}::{}", self.module_name.0, name)
                     }
                 }
-                UseStatementType::Alias(old, _new) => {
+                UseStatementType::Alias(old, new) => {
                     if self.module_name.0.is_empty() {
                         old.clone()
                     } else {
-                        format!("{}::{}", self.module_name.0, old)
+                        format!("{}::{} as {}", self.module_name.0, old, new)
                     }
                 }
                 UseStatementType::WildCard => {
