@@ -183,7 +183,7 @@ pub mod dependencies {
         ModuleDoesNotExist(String),
         #[error("crate entrypoint not found")]
         CrateEntrypointNotFound,
-        #[error("Could not find source file for module ${0}")]
+        #[error("Could not find source file for module {0}")]
         SourceFileForModuleNotFound(String),
     }
 
