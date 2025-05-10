@@ -34,6 +34,34 @@ pub mod dependencies {
         statement_type: UseStatementType,
     }
 
+    impl NormalizedUseStatement {
+        fn full_path(&self) -> String {
+            match &self.statement_type {
+                UseStatementType::Simple(name) => {
+                    if self.module_name.0.is_empty() {
+                        name.clone()
+                    } else {
+                        format!("{}::{}", self.module_name.0, name)
+                    }
+                }
+                UseStatementType::Alias(old, _new) => {
+                    if self.module_name.0.is_empty() {
+                        old.clone()
+                    } else {
+                        format!("{}::{}", self.module_name.0, old)
+                    }
+                }
+                UseStatementType::WildCard => {
+                    if self.module_name.0.is_empty() {
+                        "*".to_string()
+                    } else {
+                        format!("{}::*", self.module_name.0)
+                    }
+                }
+            }
+        }
+    }
+
     #[derive(Debug, PartialEq, Eq)]
     pub enum UseStatementType {
         /// `use crate::log::Bar;`
@@ -79,6 +107,7 @@ pub mod dependencies {
         use_statements: Vec<UseStatement>,
         mod_statements: Vec<ModStatement>,
         ancestors: Vec<String>,
+        inline_ancestors: Vec<String>,
     }
 
     #[derive(Debug)]
@@ -92,6 +121,7 @@ pub mod dependencies {
             Self {
                 use_statements: Vec::new(),
                 mod_statements: Vec::new(),
+                inline_ancestors: Vec::new(),
                 ancestors: ancestors.to_owned(),
             }
         }
@@ -118,24 +148,27 @@ pub mod dependencies {
                     ident: node.ident.to_owned(),
                 });
             }
-            self.ancestors.push(node.ident.to_string());
+            self.inline_ancestors.push(node.ident.to_string());
             visit::visit_item_mod(self, node);
 
-            self.ancestors.pop();
+            self.inline_ancestors.pop();
         }
 
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
-            let items = flatten_use_tree("", &node.tree);
+            let mut context_ancestors = self.ancestors.clone();
+            context_ancestors.extend(self.inline_ancestors.iter().cloned());
+            let items = flatten_use_tree(&context_ancestors, &[], &node.tree);
 
-            let source_module_str = if self.ancestors.is_empty() {
-                "crate".to_string()
-            } else {
-                format!("crate::{}", self.ancestors.join("::"))
-            };
+            let mut path_segments = self.ancestors.clone();
+            path_segments.insert(0, "crate".to_owned());
+            path_segments.extend(self.inline_ancestors.iter().cloned());
 
             self.use_statements.push(UseStatement {
-                source_module: self.ancestors.join("").into(),
-                target_modules: items.iter().map(|item| item.module_name.clone()).collect(),
+                source_module: path_segments.join("::").into(),
+                target_modules: items
+                    .iter()
+                    .map(|item| ModuleName(item.full_path()))
+                    .collect::<Vec<_>>(),
                 statement: UseStatementDetail {
                     items,
                     span: node.span(),
@@ -144,44 +177,61 @@ pub mod dependencies {
         }
     }
 
-    fn flatten_use_tree(prefix: &str, tree: &UseTree) -> Vec<NormalizedUseStatement> {
-        let prefixed = |ident: &Ident| {
-            if prefix.is_empty() {
-                ident.to_string()
-            } else {
-                format!("{}::{}", prefix, ident)
-            }
-        };
+    fn flatten_use_tree(
+        ancestors: &[String],
+        prefix: &[String],
+        tree: &UseTree,
+    ) -> Vec<NormalizedUseStatement> {
         match tree {
-            UseTree::Path(UsePath { ident, tree, .. }) => {
-                let new_prefix = prefixed(ident);
-                flatten_use_tree(&new_prefix, tree)
+            UseTree::Path(UsePath {
+                ident,
+                tree: subtree,
+                ..
+            }) => {
+                let current_segment = ident.to_string();
+                let mut new_prefix = Vec::new();
+
+                match current_segment.as_str() {
+                    "self" => {
+                        new_prefix.push("crate".into());
+                        new_prefix.extend_from_slice(ancestors);
+                    }
+                    "super" => {
+                        new_prefix.push("crate".into());
+                        new_prefix.extend_from_slice(ancestors);
+                        new_prefix.pop();
+                    }
+                    _ => {
+                        new_prefix.extend_from_slice(prefix);
+                        new_prefix.push(current_segment);
+                    }
+                }
+
+                flatten_use_tree(ancestors, &new_prefix, subtree)
             }
 
-            UseTree::Name(UseName { ident, .. }) => {
+            UseTree::Name(UseName { ident }) => {
                 vec![NormalizedUseStatement {
-                    module_name: ModuleName(prefix.to_owned()),
+                    module_name: ModuleName(prefix.join("::")),
                     statement_type: UseStatementType::Simple(ident.to_string()),
                 }]
             }
-
             UseTree::Rename(UseRename { ident, rename, .. }) => {
                 vec![NormalizedUseStatement {
-                    module_name: ModuleName(prefix.to_owned()),
+                    module_name: ModuleName(prefix.join("::")),
                     statement_type: UseStatementType::Alias(ident.to_string(), rename.to_string()),
                 }]
             }
-
             UseTree::Glob(UseGlob { .. }) => {
                 vec![NormalizedUseStatement {
-                    module_name: ModuleName(prefix.to_owned()),
+                    module_name: ModuleName(prefix.join("::")),
                     statement_type: UseStatementType::WildCard,
                 }]
             }
 
             UseTree::Group(UseGroup { items, .. }) => items
                 .iter()
-                .flat_map(|subtree| flatten_use_tree(prefix, subtree))
+                .flat_map(|sub| flatten_use_tree(ancestors, prefix, sub))
                 .collect(),
         }
     }
@@ -334,7 +384,10 @@ pub mod dependencies {
                 .get(&File("src/module_a/module_b.rs".to_owned()))
                 .unwrap()[0];
             assert_eq!(main_statement.source_module, "crate".into());
-            assert_eq!(main_statement.target_modules, vec!["crate".into()]);
+            assert_eq!(
+                main_statement.target_modules,
+                vec!["crate::module_a".into()]
+            );
             assert_eq!(
                 main_statement.statement.span.start(),
                 LineColumn { line: 2, column: 0 }
@@ -356,7 +409,7 @@ pub mod dependencies {
             assert_eq!(module_a_statement.source_module, "crate::module_a".into());
             assert_eq!(
                 module_a_statement.target_modules,
-                vec!["std::collections".into()]
+                vec!["std::collections::HashMap".into()]
             );
             assert_eq!(
                 module_a_statement.statement.span.start(),
@@ -380,7 +433,7 @@ pub mod dependencies {
                 module_b_statement.source_module,
                 "crate::module_a::module_b".into()
             );
-            assert_eq!(module_b_statement.target_modules, vec!["".into()]);
+            assert_eq!(module_b_statement.target_modules, vec!["foo".into()]);
             assert_eq!(
                 module_b_statement.statement.span.start(),
                 LineColumn { line: 1, column: 0 }
@@ -408,7 +461,7 @@ pub mod dependencies {
             assert_eq!(main_statement.source_module, "crate::module_a".into());
             assert_eq!(
                 main_statement.target_modules,
-                vec!["crate::module_a".into()]
+                vec!["crate::module_a::module_b".into()]
             );
             assert_eq!(
                 main_statement.statement.span.start(),
@@ -432,7 +485,7 @@ pub mod dependencies {
                 nested_statement.source_module,
                 "crate::module_a::module_b".into()
             );
-            assert_eq!(nested_statement.target_modules, vec!["foo".into()]);
+            assert_eq!(nested_statement.target_modules, vec!["foo::Bar".into()]);
             assert_eq!(
                 nested_statement.statement.span.start(),
                 LineColumn { line: 4, column: 8 }
