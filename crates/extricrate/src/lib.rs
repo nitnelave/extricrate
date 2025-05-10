@@ -179,7 +179,7 @@ pub mod dependencies {
         FileNotReadable,
         #[error("path is not a crate")]
         PathIsNotACrate,
-        #[error("linked module does not exists: {0}")]
+        #[error("linked module does not exist: {0}")]
         ModuleDoesNotExist(String),
         #[error("crate entrypoint not found")]
         CrateEntrypointNotFound,
