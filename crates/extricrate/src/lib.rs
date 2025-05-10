@@ -1,14 +1,12 @@
 #![allow(dead_code, unused_variables)]
-
 pub mod dependencies {
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs::read_to_string;
     use std::path::{Path, PathBuf};
 
     use proc_macro2::Span;
-    use quote::ToTokens;
     use syn::{
-        Ident, Item, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
+        Ident, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
         parse_file,
         spanned::Spanned,
         visit::{self, Visit},
@@ -66,20 +64,14 @@ pub mod dependencies {
 
     #[derive(Debug)]
     enum ModStatement {
-        External {
-            ident: Ident,
-            span: Span,
-        },
-        Inline {
-            ident: Ident,
-            span: Span,
-            content: Vec<Item>,
-        },
+        External { ident: Ident, span: Span },
+        Inline { ident: Ident, span: Span },
     }
 
     #[derive(Debug)]
     struct UseStatementDetail {
         items: Vec<NormalizedUseStatement>,
+        inline_mod_ancestors: Vec<String>,
         span: Span,
     }
 
@@ -87,6 +79,7 @@ pub mod dependencies {
     struct Visitor {
         use_statements: Vec<UseStatementDetail>,
         mod_statements: Vec<ModStatement>,
+        mod_stack: Vec<Ident>,
     }
 
     #[derive(Debug)]
@@ -98,6 +91,7 @@ pub mod dependencies {
     impl Visitor {
         fn new() -> Self {
             Self {
+                mod_stack: Vec::new(),
                 use_statements: Vec::new(),
                 mod_statements: Vec::new(),
             }
@@ -106,29 +100,30 @@ pub mod dependencies {
 
     impl<'ast> Visit<'ast> for Visitor {
         fn visit_item_mod(&mut self, node: &'ast ItemMod) {
-            if let Some(content) = node.content.clone() {
+            if node.content.is_some() {
                 self.mod_statements.push(ModStatement::Inline {
                     span: node.span(),
                     ident: node.ident.to_owned(),
-                    content: content.1,
-                })
+                });
             } else {
                 self.mod_statements.push(ModStatement::External {
                     span: node.span(),
                     ident: node.ident.to_owned(),
                 });
             }
+            self.mod_stack.push(node.ident.clone());
+            visit::visit_item_mod(self, node);
+
+            self.mod_stack.pop();
         }
 
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
-            let tokens = node.to_token_stream();
             let items = flatten_use_tree("", &node.tree);
             self.use_statements.push(UseStatementDetail {
+                inline_mod_ancestors: self.mod_stack.iter().map(|s| s.to_string()).collect(),
                 items,
                 span: node.span(),
             });
-
-            visit::visit_item_use(self, node);
         }
     }
 
@@ -185,7 +180,7 @@ pub mod dependencies {
         #[error("path is not a crate")]
         PathIsNotACrate,
         #[error("linked module does not exists: {0}")]
-        ModuleDoesNotExists(String),
+        ModuleDoesNotExist(String),
         #[error("crate entrypoint not found")]
         CrateEntrypointNotFound,
         #[error("Could not find source file for module ${0}")]
@@ -240,9 +235,6 @@ pub mod dependencies {
         let mut files_to_visit = VecDeque::new();
         let mut use_statement_map: UseStatementMap = HashMap::new();
         let entry_point = get_crate_entrypoint(crate_root)?;
-        let src_folder = entry_point
-            .parent()
-            .expect("Failed to get entry point parent folder");
         files_to_visit.push_back(FileToVisit {
             file: entry_point.clone(),
             module_ancestors: vec![],
@@ -266,22 +258,14 @@ pub mod dependencies {
             visitor.visit_file(&parsed_file);
 
             for mod_statement in visitor.mod_statements {
-                match mod_statement {
-                    ModStatement::External { ident, span } => {
-                        let file =
-                            mod_to_path(crate_root, &file_to_visit.module_ancestors, &ident)?;
-                        let mut new_ancestors = file_to_visit.module_ancestors.clone();
-                        new_ancestors.push(ident.to_string());
-                        files_to_visit.push_back(FileToVisit {
-                            file,
-                            module_ancestors: new_ancestors,
-                        })
-                    }
-                    ModStatement::Inline {
-                        ident,
-                        span,
-                        content,
-                    } => todo!(),
+                if let ModStatement::External { ident, span: _ } = mod_statement {
+                    let file = mod_to_path(crate_root, &file_to_visit.module_ancestors, &ident)?;
+                    let mut new_ancestors = file_to_visit.module_ancestors.clone();
+                    new_ancestors.push(ident.to_string());
+                    files_to_visit.push_back(FileToVisit {
+                        file,
+                        module_ancestors: new_ancestors,
+                    })
                 }
             }
             let statements = visitor
@@ -291,21 +275,32 @@ pub mod dependencies {
                     |UseStatementDetail {
                          items,
                          span: extent,
+                         inline_mod_ancestors,
                      }| {
                         let target_modules =
                             items.iter().map(|item| item.module_name.clone()).collect();
 
                         UseStatement {
-                            // TODO: this is not the correct module if there is a scoped mod in the file
-                            source_module: (!file_to_visit.module_ancestors.is_empty())
-                                .then(|| {
-                                    format!("crate::{}", file_to_visit.module_ancestors.join("::"))
-                                })
-                                .unwrap_or_default()
-                                .into(),
+                            source_module: (!file_to_visit.module_ancestors.is_empty()
+                                || !inline_mod_ancestors.is_empty())
+                            .then(|| {
+                                format!(
+                                    "crate::{}",
+                                    file_to_visit
+                                        .module_ancestors
+                                        .iter()
+                                        .chain(inline_mod_ancestors.iter())
+                                        .map(|ident| ident.to_string())
+                                        .collect::<Vec<_>>()
+                                        .join("::")
+                                )
+                            })
+                            .unwrap_or_default()
+                            .into(),
                             target_modules,
                             statement: UseStatementDetail {
                                 items,
+                                inline_mod_ancestors,
                                 span: extent,
                             },
                         }
@@ -328,10 +323,6 @@ pub mod dependencies {
         }
 
         Ok(use_statement_map)
-    }
-
-    fn is_local_import(name: &ModuleName) -> bool {
-        name.0 == "crate" || name.0.starts_with("crate::")
     }
 
     pub type ModuleDependencies = HashMap<ModuleName, Vec<ModuleName>>;
@@ -364,7 +355,7 @@ pub mod dependencies {
             let module_b_statement = &res
                 .get(&File("src/module_a/module_b.rs".to_owned()))
                 .unwrap()[0];
-            assert_eq!(main_statement.source_module, "".into());
+            assert_eq!(main_statement.source_module, "crate".into());
             assert_eq!(main_statement.target_modules, vec!["crate".into()]);
             assert_eq!(
                 main_statement.statement.span.start(),
@@ -425,6 +416,61 @@ pub mod dependencies {
                 vec![NormalizedUseStatement {
                     module_name: "".into(),
                     statement_type: UseStatementType::Simple("foo".to_owned()),
+                }]
+            );
+        }
+
+        #[test]
+        fn gets_a_nested_dependency() {
+            let test_project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inline/");
+            let res = list_use_statements(&test_project).expect("Failed to list statements");
+
+            let main_statement = &res.get(&File("src/main.rs".to_owned())).unwrap()[0];
+            let nested_statement = &res.get(&File("src/main.rs".to_owned())).unwrap()[1];
+            assert_eq!(main_statement.source_module, "crate::module_a".into());
+            assert_eq!(
+                main_statement.target_modules,
+                vec!["crate::module_a".into()]
+            );
+            assert_eq!(
+                main_statement.statement.span.start(),
+                LineColumn { line: 2, column: 4 }
+            );
+            assert_eq!(
+                main_statement.statement.span.end(),
+                LineColumn {
+                    line: 2,
+                    column: 34
+                }
+            );
+            assert_eq!(
+                main_statement.statement.items,
+                vec![NormalizedUseStatement {
+                    module_name: "crate::module_a".into(),
+                    statement_type: UseStatementType::Simple("module_b".to_owned()),
+                }]
+            );
+            assert_eq!(
+                nested_statement.source_module,
+                "crate::module_a::module_b".into()
+            );
+            assert_eq!(nested_statement.target_modules, vec!["foo".into()]);
+            assert_eq!(
+                nested_statement.statement.span.start(),
+                LineColumn { line: 4, column: 8 }
+            );
+            assert_eq!(
+                nested_statement.statement.span.end(),
+                LineColumn {
+                    line: 4,
+                    column: 21
+                }
+            );
+            assert_eq!(
+                nested_statement.statement.items,
+                vec![NormalizedUseStatement {
+                    module_name: "foo".into(),
+                    statement_type: UseStatementType::Simple("Bar".to_owned()),
                 }]
             );
         }
