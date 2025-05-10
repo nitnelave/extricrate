@@ -71,15 +71,13 @@ pub mod dependencies {
     #[derive(Debug)]
     struct UseStatementDetail {
         items: Vec<NormalizedUseStatement>,
-        inline_mod_ancestors: Vec<String>,
         span: Span,
     }
 
     #[derive(Debug)]
     struct Visitor {
-        use_statements: Vec<UseStatementDetail>,
+        use_statements: Vec<UseStatement>,
         mod_statements: Vec<ModStatement>,
-        mod_stack: Vec<Ident>,
         ancestors: Vec<String>,
     }
 
@@ -92,7 +90,6 @@ pub mod dependencies {
     impl Visitor {
         fn new(ancestors: &[String]) -> Self {
             Self {
-                mod_stack: Vec::new(),
                 use_statements: Vec::new(),
                 mod_statements: Vec::new(),
                 ancestors: ancestors.to_owned(),
@@ -121,18 +118,28 @@ pub mod dependencies {
                     ident: node.ident.to_owned(),
                 });
             }
-            self.mod_stack.push(node.ident.clone());
+            self.ancestors.push(node.ident.to_string());
             visit::visit_item_mod(self, node);
 
-            self.mod_stack.pop();
+            self.ancestors.pop();
         }
 
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
             let items = flatten_use_tree("", &node.tree);
-            self.use_statements.push(UseStatementDetail {
-                inline_mod_ancestors: self.mod_stack.iter().map(|s| s.to_string()).collect(),
-                items,
-                span: node.span(),
+
+            let source_module_str = if self.ancestors.is_empty() {
+                "crate".to_string()
+            } else {
+                format!("crate::{}", self.ancestors.join("::"))
+            };
+
+            self.use_statements.push(UseStatement {
+                source_module: self.ancestors.join("").into(),
+                target_modules: items.iter().map(|item| item.module_name.clone()).collect(),
+                statement: UseStatementDetail {
+                    items,
+                    span: node.span(),
+                },
             });
         }
     }
@@ -278,45 +285,6 @@ pub mod dependencies {
                     })
                 }
             }
-            let statements = visitor
-                .use_statements
-                .into_iter()
-                .map(
-                    |UseStatementDetail {
-                         items,
-                         span: extent,
-                         inline_mod_ancestors,
-                     }| {
-                        let target_modules =
-                            items.iter().map(|item| item.module_name.clone()).collect();
-
-                        UseStatement {
-                            source_module: (!file_to_visit.module_ancestors.is_empty()
-                                || !inline_mod_ancestors.is_empty())
-                            .then(|| {
-                                format!(
-                                    "crate::{}",
-                                    file_to_visit
-                                        .module_ancestors
-                                        .iter()
-                                        .chain(inline_mod_ancestors.iter())
-                                        .map(|ident| ident.to_string())
-                                        .collect::<Vec<_>>()
-                                        .join("::")
-                                )
-                            })
-                            .unwrap_or_else(|| "crate".to_string())
-                            .into(),
-                            target_modules,
-                            statement: UseStatementDetail {
-                                items,
-                                inline_mod_ancestors,
-                                span: extent,
-                            },
-                        }
-                    },
-                )
-                .collect();
 
             use_statement_map.insert(
                 File(
@@ -327,7 +295,7 @@ pub mod dependencies {
                         .to_string_lossy()
                         .to_string(),
                 ),
-                statements,
+                visitor.use_statements,
             );
             files_visited.insert(file_to_visit.file);
         }
@@ -491,7 +459,7 @@ pub mod dependencies {
             let file = syn::parse_file(src).unwrap();
             let mut visitor = Visitor::default();
             visitor.visit_file(&file);
-            let items = &visitor.use_statements[0].items;
+            let items = &visitor.use_statements[0].statement.items;
             assert_eq!(items.len(), 1);
             assert_eq!(
                 items[0],
@@ -508,7 +476,7 @@ pub mod dependencies {
             let file = syn::parse_file(src).unwrap();
             let mut visitor = Visitor::default();
             visitor.visit_file(&file);
-            let items = &visitor.use_statements[0].items;
+            let items = &visitor.use_statements[0].statement.items;
             assert_eq!(
                 items,
                 &vec![NormalizedUseStatement {
@@ -525,6 +493,7 @@ pub mod dependencies {
             let mut visitor = Visitor::default();
             visitor.visit_file(&file);
             let names: Vec<_> = visitor.use_statements[0]
+                .statement
                 .items
                 .iter()
                 .map(|i| (&i.module_name, &i.statement_type))
@@ -563,7 +532,7 @@ pub mod dependencies {
 
             assert_eq!(visitor.use_statements.len(), 1);
 
-            let detail = &visitor.use_statements[0];
+            let detail = &visitor.use_statements[0].statement;
             let items = &detail.items;
             assert_eq!(items.len(), 1);
 
@@ -591,7 +560,7 @@ pub mod dependencies {
 
             assert_eq!(visitor.use_statements.len(), 1);
 
-            let items = &visitor.use_statements[0].items;
+            let items = &visitor.use_statements[0].statement.items;
             assert_eq!(items.len(), 1);
 
             assert_eq!(
