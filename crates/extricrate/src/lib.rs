@@ -106,8 +106,8 @@ pub mod dependencies {
     struct Visitor {
         use_statements: Vec<UseStatement>,
         mod_statements: Vec<ModStatement>,
+        /// Stack of module identifiers from the crate root through both file-based (`mod foo;`) and inline (`mod bar { … }`) modules
         ancestors: Vec<String>,
-        inline_ancestors: Vec<String>,
     }
 
     #[derive(Debug)]
@@ -121,7 +121,6 @@ pub mod dependencies {
             Self {
                 use_statements: Vec::new(),
                 mod_statements: Vec::new(),
-                inline_ancestors: Vec::new(),
                 ancestors: ancestors.to_owned(),
             }
         }
@@ -148,20 +147,18 @@ pub mod dependencies {
                     ident: node.ident.to_owned(),
                 });
             }
-            self.inline_ancestors.push(node.ident.to_string());
+            self.ancestors.push(node.ident.to_string());
             visit::visit_item_mod(self, node);
 
-            self.inline_ancestors.pop();
+            self.ancestors.pop();
         }
 
         fn visit_item_use(&mut self, node: &'ast ItemUse) {
-            let mut context_ancestors = self.ancestors.clone();
-            context_ancestors.extend(self.inline_ancestors.iter().cloned());
-            let items = flatten_use_tree(&context_ancestors, &[], &node.tree);
+            let items = flatten_use_tree(&self.ancestors, &[], &node.tree);
 
-            let mut path_segments = self.ancestors.clone();
-            path_segments.insert(0, "crate".to_owned());
-            path_segments.extend(self.inline_ancestors.iter().cloned());
+            let path_segments = std::iter::once("crate".to_string())
+                .chain(self.ancestors.iter().cloned())
+                .collect::<Vec<_>>();
 
             self.use_statements.push(UseStatement {
                 source_module: path_segments.join("::").into(),
