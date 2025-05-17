@@ -38,6 +38,9 @@ pub mod dependencies {
         fn full_path(&self) -> String {
             match &self.statement_type {
                 UseStatementType::Simple(name) => {
+                    if name == "self" {
+                        return self.module_name.0.clone();
+                    }
                     if self.module_name.0.is_empty() {
                         name.clone()
                     } else {
@@ -208,10 +211,17 @@ pub mod dependencies {
             }
 
             UseTree::Name(UseName { ident }) => {
-                vec![NormalizedUseStatement {
-                    module_name: ModuleName(prefix.join("::")),
-                    statement_type: UseStatementType::Simple(ident.to_string()),
-                }]
+                if prefix.is_empty() {
+                    vec![NormalizedUseStatement {
+                        module_name: ModuleName(ident.to_string()),
+                        statement_type: UseStatementType::Simple("self".into()),
+                    }]
+                } else {
+                    vec![NormalizedUseStatement {
+                        module_name: ModuleName(prefix.join("::")),
+                        statement_type: UseStatementType::Simple(ident.to_string()),
+                    }]
+                }
             }
             UseTree::Rename(UseRename { ident, rename, .. }) => {
                 vec![NormalizedUseStatement {
@@ -442,8 +452,8 @@ pub mod dependencies {
             assert_eq!(
                 module_b_statement.statement.items,
                 vec![NormalizedUseStatement {
-                    module_name: "".into(),
-                    statement_type: UseStatementType::Simple("foo".to_owned()),
+                    module_name: "foo".into(),
+                    statement_type: UseStatementType::Simple("self".to_owned()),
                 }]
             );
         }
