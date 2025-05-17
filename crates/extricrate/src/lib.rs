@@ -631,6 +631,38 @@ pub mod dependencies {
                 }
             );
         }
+
+        #[test]
+        fn aliases_resolved() {
+            let src = r#"
+                use foo::bar as baz;
+                use foo::Bar as Baz;
+            "#;
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = Visitor::default();
+            visitor.visit_file(&file);
+
+            assert_eq!(visitor.use_statements.len(), 2);
+
+            assert_eq!(
+                visitor.use_statements[0].target_modules[0],
+                ModuleName("foo::bar".into())
+            );
+            assert_eq!(
+                visitor.use_statements[0].statement.items,
+                vec![NormalizedUseStatement {
+                    module_name: "foo".into(),
+                    statement_type: UseStatementType::Alias("bar".to_string(), "baz".to_string())
+                }]
+            );
+            assert_eq!(
+                visitor.use_statements[1].statement.items,
+                vec![NormalizedUseStatement {
+                    module_name: "foo".into(),
+                    statement_type: UseStatementType::Alias("Bar".to_string(), "Baz".to_string())
+                }]
+            );
+        }
     }
 }
 
