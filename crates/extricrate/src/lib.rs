@@ -35,32 +35,32 @@ pub mod dependencies {
     }
 
     impl NormalizedUseStatement {
-        fn full_path(&self) -> String {
+        fn get_module(&self) -> ModuleName {
             match &self.statement_type {
                 UseStatementType::Simple(name) => {
-                    if name == "self" {
-                        return self.module_name.0.clone();
+                    if name == "self"
+                        || name
+                            .chars()
+                            .next()
+                            .map(|c| c.is_uppercase())
+                            .unwrap_or(false)
+                    {
+                        return ModuleName(self.module_name.0.clone());
                     }
-                    if self.module_name.0.is_empty() {
-                        name.clone()
-                    } else {
-                        format!("{}::{}", self.module_name.0, name)
-                    }
+                    ModuleName(format!("{}::{}", self.module_name.0, name))
                 }
                 UseStatementType::Alias(old, new) => {
-                    if self.module_name.0.is_empty() {
-                        old.clone()
-                    } else {
-                        format!("{}::{} as {}", self.module_name.0, old, new)
+                    if old
+                        .chars()
+                        .next()
+                        .map(|c| c.is_uppercase())
+                        .unwrap_or(false)
+                    {
+                        return ModuleName(self.module_name.0.clone());
                     }
+                    ModuleName(format!("{}::{}", self.module_name.0, old))
                 }
-                UseStatementType::WildCard => {
-                    if self.module_name.0.is_empty() {
-                        "*".to_string()
-                    } else {
-                        format!("{}::*", self.module_name.0)
-                    }
-                }
+                UseStatementType::WildCard => ModuleName(self.module_name.0.clone()),
             }
         }
     }
@@ -167,7 +167,7 @@ pub mod dependencies {
                 source_module: path_segments.join("::").into(),
                 target_modules: items
                     .iter()
-                    .map(|item| ModuleName(item.full_path()))
+                    .map(|item| item.get_module())
                     .collect::<Vec<_>>(),
                 statement: UseStatementDetail {
                     items,
@@ -416,7 +416,7 @@ pub mod dependencies {
             assert_eq!(module_a_statement.source_module, "crate::module_a".into());
             assert_eq!(
                 module_a_statement.target_modules,
-                vec!["std::collections::HashMap".into()]
+                vec!["std::collections".into()]
             );
             assert_eq!(
                 module_a_statement.statement.span.start(),
@@ -492,7 +492,7 @@ pub mod dependencies {
                 nested_statement.source_module,
                 "crate::module_a::module_b".into()
             );
-            assert_eq!(nested_statement.target_modules, vec!["foo::Bar".into()]);
+            assert_eq!(nested_statement.target_modules, vec!["foo".into()]);
             assert_eq!(
                 nested_statement.statement.span.start(),
                 LineColumn { line: 4, column: 8 }
