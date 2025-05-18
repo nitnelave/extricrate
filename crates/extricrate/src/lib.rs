@@ -651,8 +651,8 @@ pub mod dependencies {
             assert_eq!(
                 visitor.use_statements[0].statement.items,
                 vec![NormalizedUseStatement {
-                    module_name: "foo".into(),
-                    statement_type: UseStatementType::Alias("bar".to_string(), "baz".to_string())
+                    module_name: "foo::bar".into(),
+                    statement_type: UseStatementType::Alias("self".to_string(), "baz".to_string())
                 }]
             );
             assert_eq!(
