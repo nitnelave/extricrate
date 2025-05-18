@@ -34,28 +34,26 @@ pub mod dependencies {
         statement_type: UseStatementType,
     }
 
+    fn should_remove_prefix(import_name: &str) -> bool {
+        import_name == "self"
+            || import_name
+                .chars()
+                .next()
+                .map(|c| c.is_uppercase())
+                .unwrap_or(false)
+    }
+
     impl NormalizedUseStatement {
         fn get_module(&self) -> ModuleName {
             match &self.statement_type {
                 UseStatementType::Simple(name) => {
-                    if name == "self"
-                        || name
-                            .chars()
-                            .next()
-                            .map(|c| c.is_uppercase())
-                            .unwrap_or(false)
-                    {
+                    if should_remove_prefix(name) {
                         return ModuleName(self.module_name.0.clone());
                     }
                     ModuleName(format!("{}::{}", self.module_name.0, name))
                 }
                 UseStatementType::Alias(old, new) => {
-                    if old
-                        .chars()
-                        .next()
-                        .map(|c| c.is_uppercase())
-                        .unwrap_or(false)
-                    {
+                    if should_remove_prefix(old) {
                         return ModuleName(self.module_name.0.clone());
                     }
                     ModuleName(format!("{}::{}", self.module_name.0, old))
@@ -182,6 +180,15 @@ pub mod dependencies {
         prefix: &[String],
         tree: &UseTree,
     ) -> Vec<NormalizedUseStatement> {
+        let desugar_self_import = |ident: &Ident| {
+            let mut ret = Vec::new();
+            ret.extend_from_slice(prefix);
+            if !should_remove_prefix(&ident.to_string()) {
+                ret.push(ident.to_string());
+                return (ModuleName(ret.join("::")), "self".to_string());
+            }
+            (ModuleName(ret.join("::")), ident.to_string())
+        };
         match tree {
             UseTree::Path(UsePath {
                 ident,
@@ -211,22 +218,17 @@ pub mod dependencies {
             }
 
             UseTree::Name(UseName { ident }) => {
-                if prefix.is_empty() {
-                    vec![NormalizedUseStatement {
-                        module_name: ModuleName(ident.to_string()),
-                        statement_type: UseStatementType::Simple("self".into()),
-                    }]
-                } else {
-                    vec![NormalizedUseStatement {
-                        module_name: ModuleName(prefix.join("::")),
-                        statement_type: UseStatementType::Simple(ident.to_string()),
-                    }]
-                }
+                let (module_name, ident) = desugar_self_import(ident);
+                vec![NormalizedUseStatement {
+                    module_name,
+                    statement_type: UseStatementType::Simple(ident),
+                }]
             }
             UseTree::Rename(UseRename { ident, rename, .. }) => {
+                let (module_name, ident) = desugar_self_import(ident);
                 vec![NormalizedUseStatement {
-                    module_name: ModuleName(prefix.join("::")),
-                    statement_type: UseStatementType::Alias(ident.to_string(), rename.to_string()),
+                    module_name,
+                    statement_type: UseStatementType::Alias(ident, rename.to_string()),
                 }]
             }
             UseTree::Glob(UseGlob { .. }) => {
@@ -409,8 +411,8 @@ pub mod dependencies {
             assert_eq!(
                 main_statement.statement.items,
                 vec![NormalizedUseStatement {
-                    module_name: "crate".into(),
-                    statement_type: UseStatementType::Simple("module_a".to_owned()),
+                    module_name: "crate::module_a".into(),
+                    statement_type: UseStatementType::Simple("self".to_owned()),
                 }]
             );
             assert_eq!(module_a_statement.source_module, "crate::module_a".into());
@@ -484,8 +486,8 @@ pub mod dependencies {
             assert_eq!(
                 main_statement.statement.items,
                 vec![NormalizedUseStatement {
-                    module_name: "crate::module_a".into(),
-                    statement_type: UseStatementType::Simple("module_b".to_owned()),
+                    module_name: "crate::module_a::module_b".into(),
+                    statement_type: UseStatementType::Simple("self".to_owned()),
                 }]
             );
             assert_eq!(
@@ -562,16 +564,16 @@ pub mod dependencies {
                 names,
                 vec![
                     (
-                        &ModuleName("crate".to_owned()),
-                        &UseStatementType::Simple("foo".into())
+                        &ModuleName("crate::foo".to_owned()),
+                        &UseStatementType::Simple("self".into())
                     ),
                     (
-                        &ModuleName("crate::bar".to_owned()),
-                        &UseStatementType::Simple("baz".into())
+                        &ModuleName("crate::bar::baz".to_owned()),
+                        &UseStatementType::Simple("self".into())
                     ),
                     (
-                        &ModuleName("crate::bar".to_owned()),
-                        &UseStatementType::Simple("qux".into())
+                        &ModuleName("crate::bar::qux".to_owned()),
+                        &UseStatementType::Simple("self".into())
                     ),
                 ]
             );
