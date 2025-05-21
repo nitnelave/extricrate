@@ -367,13 +367,6 @@ pub mod dependencies {
     /// List the dependencies of modules inside the given crate, including circular, based on the use statements.
     pub fn list_dependencies(use_statements: &UseStatementMap) -> ModuleDependencies {
         let mut module_dependencies: HashMap<ModuleName, Vec<ModuleName>> = HashMap::new();
-        for use_statements in use_statements.values() {
-            for use_statement in use_statements {
-                module_dependencies
-                    .entry(use_statement.source_module.clone())
-                    .or_default();
-            }
-        }
         for (file, use_statements) in use_statements.iter() {
             for use_statement in use_statements {
                 module_dependencies
