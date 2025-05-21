@@ -13,7 +13,7 @@ pub mod dependencies {
     };
     use thiserror::Error;
 
-    #[derive(Debug, PartialEq, Eq, Clone)]
+    #[derive(Debug, PartialEq, Eq, Clone, Hash)]
     pub struct ModuleName(String);
 
     impl From<String> for ModuleName {
@@ -364,23 +364,91 @@ pub mod dependencies {
 
     pub type ModuleDependencies = HashMap<ModuleName, Vec<ModuleName>>;
 
-    /// List the (circular?) dependencies of modules inside the given crate, based on the use statements.
+    /// List the dependencies of modules inside the given crate, including circular, based on the use statements.
     pub fn list_dependencies(use_statements: &UseStatementMap) -> ModuleDependencies {
-        todo!()
+        let mut module_dependencies: HashMap<ModuleName, Vec<ModuleName>> = HashMap::new();
+        for statements in use_statements.values() {
+            for statement in statements {
+                module_dependencies
+                    .entry(statement.source_module.clone())
+                    .or_default();
+            }
+        }
+        for (file, use_statements) in use_statements.iter() {
+            for use_statement in use_statements {
+                module_dependencies
+                    .entry(use_statement.source_module.clone())
+                    .or_default()
+                    .extend(
+                        use_statement
+                            .statement
+                            .items
+                            .iter()
+                            .map(|item| item.module_name.clone()),
+                    );
+            }
+        }
+        module_dependencies
     }
 
     #[cfg(test)]
     mod tests {
-        use std::path::Path;
+        use std::{collections::HashMap, path::Path};
 
         use pretty_assertions::assert_eq;
-        use proc_macro2::LineColumn;
+        use proc_macro2::{LineColumn, Span};
         use syn::visit::Visit;
 
         use crate::dependencies::{
-            File, ModuleName, NormalizedUseStatement, UseStatementType, Visitor,
-            list_use_statements,
+            File, ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail,
+            UseStatementType, Visitor, list_dependencies, list_use_statements,
         };
+
+        #[test]
+        fn build_dependency_map() {
+            let use_statements = HashMap::from([
+                (
+                    File("main.rs".into()),
+                    vec![UseStatement {
+                        source_module: ModuleName("crate".into()),
+                        target_modules: vec![ModuleName("".into())],
+                        statement: UseStatementDetail {
+                            items: vec![NormalizedUseStatement {
+                                module_name: ModuleName("crate::module_a".into()),
+                                statement_type: UseStatementType::Simple("Baz".to_string()),
+                            }],
+                            span: Span::call_site(),
+                        },
+                    }],
+                ),
+                (
+                    File("module_a/mod.rs".into()),
+                    vec![UseStatement {
+                        source_module: ModuleName("crate::module_a".into()),
+                        target_modules: vec![ModuleName("".into())],
+                        statement: UseStatementDetail {
+                            items: vec![NormalizedUseStatement {
+                                module_name: ModuleName("crate::module_b".into()),
+                                statement_type: UseStatementType::Simple("Bar".to_string()),
+                            }],
+                            span: Span::call_site(),
+                        },
+                    }],
+                ),
+            ]);
+            let dependency_map = HashMap::from([
+                (
+                    ModuleName("crate".into()),
+                    vec![ModuleName("crate::module_a".into())],
+                ),
+                (
+                    ModuleName("crate::module_a".into()),
+                    vec![ModuleName("crate::module_b".into())],
+                ),
+            ]);
+            let module_dependencies = list_dependencies(&use_statements);
+            assert_eq!(module_dependencies, dependency_map);
+        }
 
         #[test]
         fn gets_a_simple_dependency() {
@@ -457,6 +525,31 @@ pub mod dependencies {
                     module_name: "foo".into(),
                     statement_type: UseStatementType::Simple("self".to_owned()),
                 }]
+            );
+        }
+
+        #[test]
+        fn build_a_simple_dependency_map() {
+            let test_project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple/");
+            let use_statements =
+                list_use_statements(&test_project).expect("Failed to list statements");
+            let module_dependencies = list_dependencies(&use_statements);
+            assert_eq!(
+                module_dependencies,
+                HashMap::from([
+                    (
+                        ModuleName("crate".into(),),
+                        vec![ModuleName("crate::module_a".into())]
+                    ),
+                    (
+                        ModuleName("crate::module_a".into()),
+                        vec![ModuleName("std::collections".into())]
+                    ),
+                    (
+                        ModuleName("crate::module_a::module_b".into()),
+                        vec![ModuleName("foo".into())]
+                    ),
+                ])
             );
         }
 
