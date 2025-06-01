@@ -362,11 +362,11 @@ pub mod dependencies {
         Ok(use_statement_map)
     }
 
-    pub type ModuleDependencies = HashMap<ModuleName, Vec<ModuleName>>;
+    pub type ModuleDependencies = HashMap<ModuleName, HashSet<ModuleName>>;
 
     /// List the dependencies of modules inside the given crate, including circular, based on the use statements.
     pub fn list_dependencies(use_statements: &UseStatementMap) -> ModuleDependencies {
-        let mut module_dependencies: HashMap<ModuleName, Vec<ModuleName>> = HashMap::new();
+        let mut module_dependencies: ModuleDependencies = HashMap::new();
         for (file, use_statements) in use_statements.iter() {
             for use_statement in use_statements {
                 module_dependencies
@@ -386,7 +386,10 @@ pub mod dependencies {
 
     #[cfg(test)]
     mod tests {
-        use std::{collections::HashMap, path::Path};
+        use std::{
+            collections::{HashMap, HashSet},
+            path::Path,
+        };
 
         use pretty_assertions::assert_eq;
         use proc_macro2::{LineColumn, Span};
@@ -432,11 +435,11 @@ pub mod dependencies {
             let dependency_map = HashMap::from([
                 (
                     ModuleName("crate".into()),
-                    vec![ModuleName("crate::module_a".into())],
+                    HashSet::from([ModuleName("crate::module_a".into())]),
                 ),
                 (
                     ModuleName("crate::module_a".into()),
-                    vec![ModuleName("crate::module_b".into())],
+                    HashSet::from([ModuleName("crate::module_b".into())]),
                 ),
             ]);
             let module_dependencies = list_dependencies(&use_statements);
@@ -532,15 +535,15 @@ pub mod dependencies {
                 HashMap::from([
                     (
                         ModuleName("crate".into(),),
-                        vec![ModuleName("crate::module_a".into())]
+                        HashSet::from([ModuleName("crate::module_a".into())])
                     ),
                     (
                         ModuleName("crate::module_a".into()),
-                        vec![ModuleName("std::collections".into())]
+                        HashSet::from([ModuleName("std::collections".into())])
                     ),
                     (
                         ModuleName("crate::module_a::module_b".into()),
-                        vec![ModuleName("foo".into())]
+                        HashSet::from([ModuleName("foo".into())])
                     ),
                 ])
             );
