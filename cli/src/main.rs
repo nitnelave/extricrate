@@ -38,13 +38,21 @@ pub struct ExtractOpts {
     pub crate_name: String,
 }
 
+mod dependencies;
 mod logging;
+mod transform;
 
 fn main() {
     let opts = CLIOpts::parse();
     logging::init();
     match opts.command {
-        Command::ListDependencies(opts) => todo!(),
-        Command::Extract(opts) => todo!(),
+        Command::ListDependencies(opts) => {
+            dependencies::list_dependencies();
+            match opts.module {
+                Some(mod_name) => println!("{} is selected", mod_name),
+                None => eprintln!("Err: no module is provided"),
+            }
+        }
+        Command::Extract(opts) => transform::transform(&opts.module, &opts.crate_name),
     }
 }
