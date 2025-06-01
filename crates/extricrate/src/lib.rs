@@ -79,7 +79,7 @@ pub mod dependencies {
         source_module: ModuleName,
         /// List of referenced modules.
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
-        target_modules: Vec<ModuleName>,
+        target_modules: HashSet<ModuleName>,
         /// Where in the source file the use statement is.
         statement: UseStatementDetail,
     }
@@ -166,7 +166,7 @@ pub mod dependencies {
                 target_modules: items
                     .iter()
                     .map(|item| item.get_module())
-                    .collect::<Vec<_>>(),
+                    .collect::<HashSet<_>>(),
                 statement: UseStatementDetail {
                     items,
                     span: node.span(),
@@ -407,7 +407,7 @@ pub mod dependencies {
                     File("main.rs".into()),
                     vec![UseStatement {
                         source_module: ModuleName("crate".into()),
-                        target_modules: vec![ModuleName("".into())],
+                        target_modules: HashSet::from([ModuleName("".into())]),
                         statement: UseStatementDetail {
                             items: vec![NormalizedUseStatement {
                                 module_name: ModuleName("crate::module_a".into()),
@@ -421,7 +421,7 @@ pub mod dependencies {
                     File("module_a/mod.rs".into()),
                     vec![UseStatement {
                         source_module: ModuleName("crate::module_a".into()),
-                        target_modules: vec![ModuleName("".into())],
+                        target_modules: HashSet::from([ModuleName("".into())]),
                         statement: UseStatementDetail {
                             items: vec![NormalizedUseStatement {
                                 module_name: ModuleName("crate::module_b".into()),
@@ -459,7 +459,7 @@ pub mod dependencies {
             assert_eq!(main_statement.source_module, "crate".into());
             assert_eq!(
                 main_statement.target_modules,
-                vec!["crate::module_a".into()]
+                HashSet::from(["crate::module_a".into()])
             );
             assert_eq!(
                 main_statement.statement.span.start(),
@@ -482,7 +482,7 @@ pub mod dependencies {
             assert_eq!(module_a_statement.source_module, "crate::module_a".into());
             assert_eq!(
                 module_a_statement.target_modules,
-                vec!["std::collections".into()]
+                HashSet::from(["std::collections".into()])
             );
             assert_eq!(
                 module_a_statement.statement.span.start(),
@@ -506,7 +506,10 @@ pub mod dependencies {
                 module_b_statement.source_module,
                 "crate::module_a::module_b".into()
             );
-            assert_eq!(module_b_statement.target_modules, vec!["foo".into()]);
+            assert_eq!(
+                module_b_statement.target_modules,
+                HashSet::from(["foo".into()])
+            );
             assert_eq!(
                 module_b_statement.statement.span.start(),
                 LineColumn { line: 1, column: 0 }
@@ -520,6 +523,68 @@ pub mod dependencies {
                 vec![NormalizedUseStatement {
                     module_name: "foo".into(),
                     statement_type: UseStatementType::Simple("self".to_owned()),
+                }]
+            );
+        }
+
+        #[test]
+        fn gets_structs_dependency() {
+            let test_project =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/structs/");
+            let res = list_use_statements(&test_project).expect("Failed to list statements");
+
+            let main_statement = &res.get(&File("src/main.rs".to_owned())).unwrap()[0];
+            let module_a_statement = &res.get(&File("src/module_a/mod.rs".to_owned())).unwrap()[0];
+            assert_eq!(main_statement.source_module, "crate".into());
+            assert_eq!(
+                main_statement.target_modules,
+                HashSet::from(["crate::module_a".into()])
+            );
+            assert_eq!(
+                main_statement.statement.span.start(),
+                LineColumn { line: 2, column: 0 }
+            );
+            assert_eq!(
+                main_statement.statement.span.end(),
+                LineColumn {
+                    line: 2,
+                    column: 32
+                }
+            );
+            assert_eq!(
+                main_statement.statement.items,
+                vec![
+                    NormalizedUseStatement {
+                        module_name: "crate::module_a".into(),
+                        statement_type: UseStatementType::Simple("Bar".to_owned()),
+                    },
+                    NormalizedUseStatement {
+                        module_name: "crate::module_a".into(),
+                        statement_type: UseStatementType::Simple("Foo".to_owned()),
+                    }
+                ]
+            );
+            assert_eq!(module_a_statement.source_module, "crate::module_a".into());
+            assert_eq!(
+                module_a_statement.target_modules,
+                HashSet::from(["std::collections".into()])
+            );
+            assert_eq!(
+                module_a_statement.statement.span.start(),
+                LineColumn { line: 1, column: 0 }
+            );
+            assert_eq!(
+                module_a_statement.statement.span.end(),
+                LineColumn {
+                    line: 1,
+                    column: 30
+                }
+            );
+            assert_eq!(
+                module_a_statement.statement.items,
+                vec![NormalizedUseStatement {
+                    module_name: "std::collections".into(),
+                    statement_type: UseStatementType::Simple("HashMap".to_owned()),
                 }]
             );
         }
@@ -550,6 +615,28 @@ pub mod dependencies {
         }
 
         #[test]
+        fn build_a_simple_dependency_map_with_structs() {
+            let test_project =
+                Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/structs/");
+            let use_statements =
+                list_use_statements(&test_project).expect("Failed to list statements");
+            let module_dependencies = list_dependencies(&use_statements);
+            assert_eq!(
+                module_dependencies,
+                HashMap::from([
+                    (
+                        ModuleName("crate".into(),),
+                        HashSet::from([ModuleName("crate::module_a".into())])
+                    ),
+                    (
+                        ModuleName("crate::module_a".into()),
+                        HashSet::from([ModuleName("std::collections".into())])
+                    ),
+                ])
+            );
+        }
+
+        #[test]
         fn gets_a_nested_dependency() {
             let test_project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/inline/");
             let res = list_use_statements(&test_project).expect("Failed to list statements");
@@ -559,7 +646,7 @@ pub mod dependencies {
             assert_eq!(main_statement.source_module, "crate::module_a".into());
             assert_eq!(
                 main_statement.target_modules,
-                vec!["crate::module_a::module_b".into()]
+                HashSet::from(["crate::module_a::module_b".into()])
             );
             assert_eq!(
                 main_statement.statement.span.start(),
@@ -583,7 +670,10 @@ pub mod dependencies {
                 nested_statement.source_module,
                 "crate::module_a::module_b".into()
             );
-            assert_eq!(nested_statement.target_modules, vec!["foo".into()]);
+            assert_eq!(
+                nested_statement.target_modules,
+                HashSet::from(["foo".into()])
+            );
             assert_eq!(
                 nested_statement.statement.span.start(),
                 LineColumn { line: 4, column: 8 }
@@ -736,8 +826,8 @@ pub mod dependencies {
             assert_eq!(visitor.use_statements.len(), 2);
 
             assert_eq!(
-                visitor.use_statements[0].target_modules[0],
-                ModuleName("foo::bar".into())
+                visitor.use_statements[0].target_modules,
+                HashSet::from([ModuleName("foo::bar".into())])
             );
             assert_eq!(
                 visitor.use_statements[0].statement.items,
