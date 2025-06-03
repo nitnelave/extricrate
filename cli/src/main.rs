@@ -53,6 +53,6 @@ fn main() {
                 None => eprintln!("Err: no module is provided"),
             }
         }
-        Command::Extract(opts) => transform::transform(&opts.module, &opts.crate_name),
+        Command::Extract(opts) => transform::transform(&opts.module, &opts.crate_name, &"use"),
     }
 }
