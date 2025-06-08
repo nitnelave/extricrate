@@ -17,6 +17,8 @@ tracing-attributes.workspace = true
 tracing-forest.workspace = true
 tracing-log.workspace = true
 tracing-subscriber.workspace = true
+extricrate = { path = "../crates/extricrate" }
+
 
 [dependencies.clap]
 features = ["std", "color", "suggestions", "derive", "env"]

@@ -14,7 +14,7 @@ pub mod dependencies {
     use thiserror::Error;
 
     #[derive(Debug, PartialEq, Eq, Clone)]
-    pub struct ModuleName(String);
+    pub struct ModuleName(pub String);
 
     impl From<String> for ModuleName {
         fn from(value: String) -> Self {
@@ -30,8 +30,8 @@ pub mod dependencies {
     /// A single, separate use statement.
     #[derive(Debug, PartialEq, Eq)]
     pub struct NormalizedUseStatement {
-        module_name: ModuleName,
-        statement_type: UseStatementType,
+        pub module_name: ModuleName,
+        pub statement_type: UseStatementType,
     }
 
     fn should_remove_prefix(import_name: &str) -> bool {
@@ -76,12 +76,12 @@ pub mod dependencies {
     #[derive(Debug)]
     pub struct UseStatement {
         /// Where the use statement appears.
-        source_module: ModuleName,
+        pub source_module: ModuleName,
         /// List of referenced modules.
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
-        target_modules: Vec<ModuleName>,
+        pub target_modules: Vec<ModuleName>,
         /// Where in the source file the use statement is.
-        statement: UseStatementDetail,
+        pub statement: UseStatementDetail,
     }
 
     pub type UseStatements = Vec<UseStatement>;
@@ -98,9 +98,9 @@ pub mod dependencies {
     }
 
     #[derive(Debug)]
-    struct UseStatementDetail {
-        items: Vec<NormalizedUseStatement>,
-        span: Span,
+    pub struct UseStatementDetail {
+        pub items: Vec<NormalizedUseStatement>,
+        pub span: Span,
     }
 
     #[derive(Debug)]
