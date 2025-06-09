@@ -951,7 +951,7 @@ pub mod dependencies {
             );
         }
         #[test]
-        fn finds_file_rs_module() {
+        fn finds_module_file() {
             let crate_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple");
             let statements = list_use_statements(&crate_root).unwrap();
 
@@ -963,7 +963,7 @@ pub mod dependencies {
         }
 
         #[test]
-        fn finds_mod_rs_directory() {
+        fn finds_module_directory() {
             let crate_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple");
             let statements = list_use_statements(&crate_root).unwrap();
 
