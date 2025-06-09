@@ -992,9 +992,7 @@ pub mod refactor {
     ) -> Result<(), Box<dyn Error>> {
         create_target_crate(target_crate_root, target_crate_name)?;
 
-        // returns a Vec<File> by resolving the file `module.rs` or the folder `module/mod.rs`
-        // if the module uses other modules in the crate, add them to the list
-        let file_to_move = get_all_module_files(crate_root, module, use_statements);
+        let path = get_all_module_files(crate_root, module, use_statements);
 
         todo!();
         // transform_statements_for_local_crate(file_to_move, &use_statements);
