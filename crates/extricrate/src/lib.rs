@@ -452,6 +452,8 @@ pub mod dependencies {
         ModulePathError(ListUseStatementError),
         #[error("module contains non-descendant modules")]
         ModuleContainsNonDescendants,
+        #[error("invalid parent directory")]
+        InvalidParentDirectory,
     }
 
     /// Returns all the files in the create that are dependencies of `module`
@@ -459,7 +461,7 @@ pub mod dependencies {
         crate_root: &Path,
         module: &ModulePath,
         use_statements: &UseStatementMap,
-    ) -> Result<Vec<PathBuf>, GetAllModuleFilesError> {
+    ) -> Result<PathBuf, GetAllModuleFilesError> {
         let mut parts = module.0.split('.').collect::<Vec<_>>();
         let module_name = parts.pop().ok_or(GetAllModuleFilesError::EmptyModuleName)?;
 
@@ -476,13 +478,15 @@ pub mod dependencies {
             }) {
                 return Err(GetAllModuleFilesError::ModuleContainsNonDescendants);
             }
-            let local_dependencies = file_dependencies
-                .iter()
-                .filter(|dependency| dependency.0.starts_with("crate::"))
-                .collect::<Vec<_>>();
-            dbg!(local_dependencies);
         }
-        todo!();
+        if file_path.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
+            let dir = file_path
+                .parent()
+                .ok_or(GetAllModuleFilesError::InvalidParentDirectory)?;
+            Ok(dir.to_path_buf())
+        } else {
+            Ok(file_path)
+        }
     }
 
     #[cfg(test)]
@@ -952,10 +956,9 @@ pub mod dependencies {
             let statements = list_use_statements(&crate_root).unwrap();
 
             let module = ModulePath::from("module_a.module_b".to_string());
-            let files = get_all_module_files(&crate_root, &module, &statements).unwrap();
+            let file = get_all_module_files(&crate_root, &module, &statements).unwrap();
 
-            assert_eq!(files.len(), 1);
-            let rel: PathBuf = files[0].strip_prefix(&crate_root).unwrap().to_path_buf();
+            let rel: PathBuf = file.strip_prefix(&crate_root).unwrap().to_path_buf();
             assert_eq!(rel, PathBuf::from("src/module_a/module_b.rs"));
         }
 
@@ -965,10 +968,9 @@ pub mod dependencies {
             let statements = list_use_statements(&crate_root).unwrap();
 
             let module = ModulePath::from("module_a".to_string());
-            let files = get_all_module_files(&crate_root, &module, &statements).unwrap();
+            let file = get_all_module_files(&crate_root, &module, &statements).unwrap();
 
-            assert_eq!(files.len(), 1);
-            let rel: PathBuf = files[0].strip_prefix(&crate_root).unwrap().to_path_buf();
+            let rel: PathBuf = file.strip_prefix(&crate_root).unwrap().to_path_buf();
             assert_eq!(rel, PathBuf::from("src/module_a"));
         }
     }
