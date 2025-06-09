@@ -4,6 +4,7 @@ pub mod dependencies {
     use std::fs::read_to_string;
     use std::path::{Path, PathBuf};
 
+    use cargo::GlobalContext;
     use proc_macro2::Span;
     use syn::{
         Ident, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
@@ -22,6 +23,24 @@ pub mod dependencies {
         }
     }
     impl From<&str> for ModuleName {
+        fn from(value: &str) -> Self {
+            Self(value.to_owned())
+        }
+    }
+    impl From<&ModulePath> for ModuleName {
+        fn from(value: &ModulePath) -> Self {
+            Self(format!("crate::{}", value.0.replace(".", "::")))
+        }
+    }
+
+    /// A module path like `foo.bar`
+    pub struct ModulePath(String);
+    impl From<String> for ModulePath {
+        fn from(value: String) -> Self {
+            Self(value)
+        }
+    }
+    impl From<&str> for ModulePath {
         fn from(value: &str) -> Self {
             Self(value.to_owned())
         }
@@ -259,8 +278,10 @@ pub mod dependencies {
         ModuleDoesNotExist(String),
         #[error("crate entrypoint not found")]
         CrateEntrypointNotFound,
-        #[error("Could not find source file for module {0}")]
+        #[error("could not find source file for module {0}")]
         SourceFileForModuleNotFound(String),
+        #[error("empty module name")]
+        EmptyModuleName,
     }
 
     fn get_crate_entrypoint(crate_root: &Path) -> Result<PathBuf, ListUseStatementError> {
@@ -286,21 +307,24 @@ pub mod dependencies {
     // NOTE: path attribute on mod is currently not supported
     fn mod_to_path(
         crate_root: &Path,
-        ancestors: &[String],
-        ident: &Ident,
+        module_path: &ModulePath,
     ) -> Result<PathBuf, ListUseStatementError> {
-        let ident = ident.to_string();
-        let mut root_path = crate_root.join("src");
-        root_path.extend(ancestors);
+        let mut parts = module_path.0.split('.').collect::<Vec<_>>();
+        let module_name = parts.pop().ok_or(ListUseStatementError::EmptyModuleName)?;
 
-        let file_module = root_path.join(format!("{}.rs", ident));
-        let folder_module = root_path.join(&ident).join("mod.rs");
+        let mut root_path = crate_root.join("src");
+        root_path.extend(parts);
+
+        let file_module = root_path.join(format!("{}.rs", module_name));
+        let folder_module = root_path.join(module_name).join("mod.rs");
         if file_module.exists() {
             return Ok(file_module);
         } else if folder_module.exists() {
             return Ok(folder_module);
         }
-        Err(ListUseStatementError::SourceFileForModuleNotFound(ident))
+        Err(ListUseStatementError::SourceFileForModuleNotFound(
+            module_name.to_string(),
+        ))
     }
 
     /// List all the `use` statements in the crate, by file/module.
@@ -335,7 +359,12 @@ pub mod dependencies {
 
             for mod_statement in visitor.mod_statements {
                 if let ModStatement::External { ident, span: _ } = mod_statement {
-                    let file = mod_to_path(crate_root, &file_to_visit.module_ancestors, &ident)?;
+                    let module_path = if file_to_visit.module_ancestors.is_empty() {
+                        ident.to_string()
+                    } else {
+                        format!("{}.{}", file_to_visit.module_ancestors.join("."), ident)
+                    };
+                    let file = mod_to_path(crate_root, &ModulePath(module_path))?;
                     let mut new_ancestors = file_to_visit.module_ancestors.clone();
                     new_ancestors.push(ident.to_string());
                     files_to_visit.push_back(FileToVisit {
@@ -384,11 +413,83 @@ pub mod dependencies {
         module_dependencies
     }
 
+    #[derive(Debug, Error)]
+    pub enum CreateCrateError {
+        #[error("failed to get context")]
+        FailedToGetContext,
+        #[error("failed to create create")]
+        FailedToCreateCrate,
+    }
+
+    /// Creates a new crate named [target_crate_name] at the [target_crate_root]
+    pub fn create_target_crate(
+        target_crate_root: &std::path::Path,
+        target_crate_name: &str,
+    ) -> std::result::Result<cargo::ops::NewProjectKind, CreateCrateError> {
+        let global_context =
+            GlobalContext::default().map_err(|_| CreateCrateError::FailedToGetContext)?;
+
+        cargo::ops::init(
+            &cargo::ops::NewOptions {
+                version_control: None,
+                kind: cargo::ops::NewProjectKind::Lib,
+                auto_detect_kind: false,
+                path: target_crate_root.into(),
+                name: Some(target_crate_name.to_string()),
+                edition: None,
+                registry: None,
+            },
+            &global_context,
+        )
+        .map_err(|_| CreateCrateError::FailedToCreateCrate)
+    }
+
+    #[derive(Error, Debug)]
+    pub enum GetAllModuleFilesError {
+        #[error("empty module name")]
+        EmptyModuleName,
+        #[error("failed to convert module to path {0}")]
+        ModulePathError(ListUseStatementError),
+        #[error("module contains non-descendant modules")]
+        ModuleContainsNonDescendants,
+    }
+
+    /// Returns all the files in the create that are dependencies of `module`
+    pub fn get_all_module_files(
+        crate_root: &Path,
+        module: &ModulePath,
+        use_statements: &UseStatementMap,
+    ) -> Result<Vec<PathBuf>, GetAllModuleFilesError> {
+        let mut parts = module.0.split('.').collect::<Vec<_>>();
+        let module_name = parts.pop().ok_or(GetAllModuleFilesError::EmptyModuleName)?;
+
+        let mut root_path = crate_root.join("src");
+        root_path.extend(parts);
+
+        let file_path =
+            mod_to_path(crate_root, module).map_err(GetAllModuleFilesError::ModulePathError)?;
+        let all_dependencies = list_dependencies(use_statements);
+        let module_name: ModuleName = module.into();
+        if let Some(file_dependencies) = all_dependencies.get(&module_name) {
+            if file_dependencies.iter().any(|dependency| {
+                dependency.0.starts_with("crate::") && !dependency.0.starts_with(&module_name.0)
+            }) {
+                return Err(GetAllModuleFilesError::ModuleContainsNonDescendants);
+            }
+            let local_dependencies = file_dependencies
+                .iter()
+                .filter(|dependency| dependency.0.starts_with("crate::"))
+                .collect::<Vec<_>>();
+            dbg!(local_dependencies);
+        }
+        todo!();
+    }
+
     #[cfg(test)]
     mod tests {
         use std::{
             collections::{HashMap, HashSet},
-            path::Path,
+            path::{Path, PathBuf},
         };
 
         use pretty_assertions::assert_eq;
@@ -396,8 +497,9 @@ pub mod dependencies {
         use syn::visit::Visit;
 
         use crate::dependencies::{
-            File, ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail,
-            UseStatementType, Visitor, list_dependencies, list_use_statements,
+            File, ModuleName, ModulePath, NormalizedUseStatement, UseStatement, UseStatementDetail,
+            UseStatementType, Visitor, get_all_module_files, list_dependencies,
+            list_use_statements,
         };
 
         #[test]
@@ -844,22 +946,57 @@ pub mod dependencies {
                 }]
             );
         }
+        #[test]
+        fn finds_file_rs_module() {
+            let crate_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple");
+            let statements = list_use_statements(&crate_root).unwrap();
+
+            let module = ModulePath::from("module_a.module_b".to_string());
+            let files = get_all_module_files(&crate_root, &module, &statements).unwrap();
+
+            assert_eq!(files.len(), 1);
+            let rel: PathBuf = files[0].strip_prefix(&crate_root).unwrap().to_path_buf();
+            assert_eq!(rel, PathBuf::from("src/module_a/module_b.rs"));
+        }
+
+        #[test]
+        fn finds_mod_rs_directory() {
+            let crate_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple");
+            let statements = list_use_statements(&crate_root).unwrap();
+
+            let module = ModulePath::from("module_a".to_string());
+            let files = get_all_module_files(&crate_root, &module, &statements).unwrap();
+
+            assert_eq!(files.len(), 1);
+            let rel: PathBuf = files[0].strip_prefix(&crate_root).unwrap().to_path_buf();
+            assert_eq!(rel, PathBuf::from("src/module_a"));
+        }
     }
 }
 
 pub mod refactor {
-    use std::path::Path;
+    use std::{error::Error, path::Path};
 
-    use crate::dependencies::{ModuleName, UseStatementMap};
+    use crate::dependencies::{
+        ModulePath, UseStatementMap, create_target_crate, get_all_module_files,
+    };
 
     pub fn extract_crate(
         crate_root: &Path,
-        module: &ModuleName,
+        module: &ModulePath,
         target_crate_name: &str,
         target_crate_root: &std::path::Path,
         use_statements: &UseStatementMap,
-    ) {
-        // Should probably return errors.
-        todo!()
+    ) -> Result<(), Box<dyn Error>> {
+        create_target_crate(target_crate_root, target_crate_name)?;
+
+        // returns a Vec<File> by resolving the file `module.rs` or the folder `module/mod.rs`
+        // if the module uses other modules in the crate, add them to the list
+        let file_to_move = get_all_module_files(crate_root, module, use_statements);
+
+        todo!();
+        // transform_statements_for_local_crate(file_to_move, &use_statements);
+        // cycle all the statement and updates files with the new crate reference
+        // update_statements_for_external_crate(files_to_move, use_statements);
     }
 }
