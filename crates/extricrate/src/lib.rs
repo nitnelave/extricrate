@@ -429,6 +429,8 @@ pub mod dependencies {
         Command::new("cargo")
             .args([
                 "new",
+                "--vcs",
+                "none",
                 "--lib",
                 "--name",
                 target_crate_name,
