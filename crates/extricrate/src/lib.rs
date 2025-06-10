@@ -3,8 +3,8 @@ pub mod dependencies {
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs::read_to_string;
     use std::path::{Path, PathBuf};
+    use std::process::{Command, Output};
 
-    use cargo::GlobalContext;
     use proc_macro2::Span;
     use syn::{
         Ident, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
@@ -415,33 +415,29 @@ pub mod dependencies {
 
     #[derive(Debug, Error)]
     pub enum CreateCrateError {
-        #[error("failed to get context")]
-        FailedToGetContext,
         #[error("failed to create create")]
         FailedToCreateCrate,
+        #[error("invalid path")]
+        InvalidPath,
     }
 
     /// Creates a new crate named [target_crate_name] at the [target_crate_root]
     pub fn create_target_crate(
         target_crate_root: &std::path::Path,
         target_crate_name: &str,
-    ) -> std::result::Result<cargo::ops::NewProjectKind, CreateCrateError> {
-        let global_context =
-            GlobalContext::default().map_err(|_| CreateCrateError::FailedToGetContext)?;
-
-        cargo::ops::init(
-            &cargo::ops::NewOptions {
-                version_control: None,
-                kind: cargo::ops::NewProjectKind::Lib,
-                auto_detect_kind: false,
-                path: target_crate_root.into(),
-                name: Some(target_crate_name.to_string()),
-                edition: None,
-                registry: None,
-            },
-            &global_context,
-        )
-        .map_err(|_| CreateCrateError::FailedToCreateCrate)
+    ) -> Result<Output, CreateCrateError> {
+        Command::new("cargo")
+            .args([
+                "new",
+                "--lib",
+                "--name",
+                target_crate_name,
+                target_crate_root
+                    .to_str()
+                    .ok_or(CreateCrateError::InvalidPath)?,
+            ])
+            .output()
+            .map_err(|_| CreateCrateError::FailedToCreateCrate)
     }
 
     #[derive(Error, Debug)]
@@ -493,6 +489,8 @@ pub mod dependencies {
     mod tests {
         use std::{
             collections::{HashMap, HashSet},
+            env::temp_dir,
+            fs::{self, remove_dir_all},
             path::{Path, PathBuf},
         };
 
@@ -505,6 +503,8 @@ pub mod dependencies {
             UseStatementType, Visitor, get_all_module_files, list_dependencies,
             list_use_statements,
         };
+
+        use super::create_target_crate;
 
         #[test]
         fn build_dependency_map() {
@@ -972,6 +972,20 @@ pub mod dependencies {
 
             let rel: PathBuf = file.strip_prefix(&crate_root).unwrap().to_path_buf();
             assert_eq!(rel, PathBuf::from("src/module_a"));
+        }
+
+        #[test]
+        fn runs_cargo_init() {
+            let test_crate_name = "test_crate";
+            let tmp_dir = temp_dir();
+            let tmp_crate = tmp_dir.join(test_crate_name);
+            remove_dir_all(&tmp_crate).unwrap_or_default();
+            let res = create_target_crate(&tmp_crate, test_crate_name).unwrap();
+            let paths = fs::read_dir(tmp_crate).unwrap();
+            let created_paths = paths
+                .map(|path| path.unwrap().file_name().to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            assert_eq!(created_paths, vec!["Cargo.toml", "src"]);
         }
     }
 }
