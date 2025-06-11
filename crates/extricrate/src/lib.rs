@@ -264,7 +264,7 @@ pub mod dependencies {
         }
     }
 
-    #[derive(Debug, Error)]
+    #[derive(Debug, Error, PartialEq)]
     pub enum ListUseStatementError {
         #[error("file not found")]
         FileNotFound,
@@ -442,7 +442,7 @@ pub mod dependencies {
             .map_err(|_| CreateCrateError::FailedToCreateCrate)
     }
 
-    #[derive(Error, Debug)]
+    #[derive(Error, Debug, PartialEq)]
     pub enum GetAllModuleFilesError {
         #[error("empty module name")]
         EmptyModuleName,
@@ -501,15 +501,15 @@ pub mod dependencies {
         use syn::visit::Visit;
 
         use crate::dependencies::{
-            File, ModuleName, ModulePath, NormalizedUseStatement, UseStatement, UseStatementDetail,
-            UseStatementType, Visitor, get_all_module_files, list_dependencies,
-            list_use_statements,
+            File, GetAllModuleFilesError, ListUseStatementError, ModuleName, ModulePath,
+            NormalizedUseStatement, UseStatement, UseStatementDetail, UseStatementType, Visitor,
+            get_all_module_files, list_dependencies, list_use_statements,
         };
 
-        use super::create_target_crate;
+        use super::{create_target_crate, mod_to_path};
 
         #[test]
-        fn build_dependency_map() {
+        fn builds_a_dependency_map() {
             let use_statements = HashMap::from([
                 (
                     File("main.rs".into()),
@@ -698,7 +698,7 @@ pub mod dependencies {
         }
 
         #[test]
-        fn build_a_simple_dependency_map() {
+        fn builds_a_simple_dependency_map() {
             let test_project = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple/");
             let use_statements =
                 list_use_statements(&test_project).expect("Failed to list statements");
@@ -723,7 +723,7 @@ pub mod dependencies {
         }
 
         #[test]
-        fn build_a_simple_dependency_map_with_structs() {
+        fn builds_a_simple_dependency_map_with_structs() {
             let test_project =
                 Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/structs/");
             let use_statements =
@@ -867,7 +867,7 @@ pub mod dependencies {
         }
 
         #[test]
-        fn super_import_resolved() {
+        fn resolves_super_import() {
             let src = r#"
             mod module_a {
                 mod module_b {
@@ -895,7 +895,7 @@ pub mod dependencies {
         }
 
         #[test]
-        fn self_import_resolved() {
+        fn resolves_self_import() {
             let src = r#"
                 mod module_a {
                     mod module_b {
@@ -988,6 +988,43 @@ pub mod dependencies {
                 .map(|path| path.unwrap().file_name().to_string_lossy().into_owned())
                 .collect::<Vec<_>>();
             assert_eq!(created_paths, vec!["Cargo.toml", "src"]);
+        }
+
+        #[test]
+        fn converts_module_path_to_module_name() {
+            let module_path = ModulePath("module_a.module_b".into());
+            let module = ModuleName::from(&module_path);
+            assert_eq!(module, ModuleName("crate::module_a::module_b".to_string()));
+        }
+
+        #[test]
+        fn fails_if_module_not_found() {
+            let crate_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/simple");
+            let res = mod_to_path(
+                &crate_root,
+                &ModulePath("module_a.non_existing_module".to_string()),
+            );
+            assert_eq!(
+                res,
+                Err(ListUseStatementError::SourceFileForModuleNotFound(
+                    "non_existing_module".to_string()
+                ))
+            )
+        }
+
+        #[test]
+        fn fails_if_source_file_contains_non_descendants() {
+            let crate_root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/broken");
+            let statements = list_use_statements(&crate_root).unwrap();
+            let res = get_all_module_files(
+                &crate_root,
+                &ModulePath("module_b".to_string()),
+                &statements,
+            );
+            assert_eq!(
+                res,
+                Err(GetAllModuleFilesError::ModuleContainsNonDescendants)
+            )
         }
     }
 }
