@@ -30,8 +30,8 @@ pub mod dependencies {
     /// A single, separate use statement.
     #[derive(Debug, PartialEq, Eq)]
     pub struct NormalizedUseStatement {
-        module_name: ModuleName,
-        statement_type: UseStatementType,
+        pub module_name: ModuleName,
+        pub statement_type: UseStatementType,
     }
 
     fn should_remove_prefix(import_name: &str) -> bool {
@@ -76,12 +76,12 @@ pub mod dependencies {
     #[derive(Debug)]
     pub struct UseStatement {
         /// Where the use statement appears.
-        source_module: ModuleName,
+        pub source_module: ModuleName,
         /// List of referenced modules.
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
         target_modules: HashSet<ModuleName>,
         /// Where in the source file the use statement is.
-        statement: UseStatementDetail,
+        pub statement: UseStatementDetail,
     }
 
     pub type UseStatements = Vec<UseStatement>;
@@ -98,9 +98,9 @@ pub mod dependencies {
     }
 
     #[derive(Debug)]
-    struct UseStatementDetail {
-        items: Vec<NormalizedUseStatement>,
-        span: Span,
+    pub struct UseStatementDetail {
+        pub items: Vec<NormalizedUseStatement>,
+        pub span: Span,
     }
 
     #[derive(Debug)]

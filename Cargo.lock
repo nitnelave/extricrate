@@ -66,6 +66,7 @@ name = "cargo-extricrate"
 version = "0.0.1"
 dependencies = [
  "clap",
+ "extricrate",
  "log",
  "pretty_assertions",
  "tracing",
