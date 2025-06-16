@@ -1,5 +1,7 @@
 #![allow(dead_code, unused_variables)]
 
+use std::path::Path;
+
 use clap::Parser;
 
 /// Extricrate is a refactoring tool to extract a crate.
