@@ -3,9 +3,6 @@
 use std::path::Path;
 
 use clap::Parser;
-use extricrate::dependencies::{
-    ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail, UseStatementType,
-};
 
 /// Extricrate is a refactoring tool to extract a crate.
 #[derive(Debug, Parser, Clone)]
@@ -44,30 +41,12 @@ pub struct ExtractOpts {
 }
 
 mod logging;
-mod transform;
 
 fn main() {
     let opts = CLIOpts::parse();
     logging::init();
-
-    let statements = UseStatement {
-        source_module: ModuleName("module name".to_string()),
-        target_modules: vec![ModuleName("target module name".to_string())],
-        statement: UseStatementDetail {
-            items: vec![NormalizedUseStatement {
-                module_name: ModuleName("module name".to_string()),
-                statement_type: UseStatementType::Simple("use crate::log::Bar;".to_string()),
-            }],
-            span: _,
-        },
-    };
-
     match opts.command {
         Command::ListDependencies(opts) => todo!(),
-        Command::Extract(opts) => transform::transform(
-            Path::new(&opts.module),
-            Path::new(&opts.crate_name),
-            vec![statements],
-        ),
+        Command::Extract(opts) => todo!(),
     }
 }

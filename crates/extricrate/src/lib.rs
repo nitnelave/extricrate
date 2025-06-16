@@ -1,13 +1,13 @@
 #![allow(dead_code, unused_variables)]
 pub mod dependencies {
     use std::collections::{HashMap, HashSet, VecDeque};
-    use std::fs::read_to_string;
+    use std::fs::{File as FsFile, read_to_string};
     use std::path::{Path, PathBuf};
 
     use proc_macro2::Span;
     use syn::{
-        Ident, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
-        parse_file,
+        File as SynFile, Ident, Item, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath,
+        UseRename, UseTree, parse_file,
         spanned::Spanned,
         visit::{self, Visit},
     };
@@ -76,15 +76,66 @@ pub mod dependencies {
     #[derive(Debug)]
     pub struct UseStatement {
         /// Where the use statement appears.
-        pub source_module: ModuleName,
+        source_module: ModuleName,
         /// List of referenced modules.
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
         target_modules: HashSet<ModuleName>,
         /// Where in the source file the use statement is.
-        pub statement: UseStatementDetail,
+        statement: UseStatementDetail,
     }
 
     pub type UseStatements = Vec<UseStatement>;
+
+    pub fn transform(input_path: &Path, output_path: &Path, use_statements: UseStatements) {
+        // Check whether the output path exists or not
+        if !output_path.exists() {
+            FsFile::create(output_path).expect("Err: failed to create a file");
+        }
+
+        // Read the input path content
+        let content = read_to_string(input_path).expect("Err: failed to read the file content");
+        let syntax: SynFile = syn::parse_file(&content).unwrap();
+
+        let mut output = content.clone();
+        for item in syntax.items {
+            if let Item::Use(use_item) = item {
+                let span = use_item.span();
+                let original = quote::quote!(#use_item).to_string();
+
+                if let Some(first_space) = original.find(' ') {
+                    let (first_part, rest) = original.split_at(first_space + 1);
+                    let split_rest = rest.replace(" ", "");
+                    let result = format!("{}{}", first_part, split_rest);
+
+                    let mut source: ModuleName;
+                    if let Some(input_str) = input_path.to_str() {
+                        source = ModuleName(input_str.to_string());
+                    }
+
+                    let mut target: HashSet<ModuleName> = HashSet::new();
+                    if let Some(output_str) = output_path.to_str() {
+                        target.insert(ModuleName(output_str.to_string()));
+                    }
+
+                    let statements = UseStatement {
+                        source_module: source,
+                        target_modules: target,
+                        statement: UseStatementDetail {
+                            items: vec![NormalizedUseStatement {
+                                module_name: ModuleName("module name".to_string()),
+                                statement_type: UseStatementType::Simple(result),
+                            }],
+                            span: _,
+                        },
+                    };
+                    // output = output.replacen(&result, "todo!();", 1);
+                } else {
+                    println!("{}", original);
+                }
+            }
+        }
+        std::fs::write("output.rs", output).unwrap();
+    }
 
     #[derive(Debug, Hash, PartialEq, Eq)]
     pub struct File(String);
@@ -99,8 +150,8 @@ pub mod dependencies {
 
     #[derive(Debug)]
     pub struct UseStatementDetail {
-        pub items: Vec<NormalizedUseStatement>,
-        pub span: Span,
+        items: Vec<NormalizedUseStatement>,
+        span: Span,
     }
 
     #[derive(Debug)]
