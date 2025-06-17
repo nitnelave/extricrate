@@ -415,7 +415,7 @@ pub mod dependencies {
 
     #[derive(Debug, Error)]
     pub enum CreateCrateError {
-        #[error("failed to create create")]
+        #[error("failed to create crate")]
         FailedToCreateCrate,
         #[error("invalid path")]
         InvalidPath,
