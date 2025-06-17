@@ -416,8 +416,8 @@ pub mod dependencies {
 
     #[derive(Debug, Error)]
     pub enum CreateCrateError {
-        #[error("failed to create crate")]
-        FailedToCreateCrate,
+        #[error("failed to create crate {0}")]
+        FailedToCreateCrate(std::io::Error),
         #[error("invalid path")]
         InvalidPath,
     }
@@ -440,7 +440,7 @@ pub mod dependencies {
                     .ok_or(CreateCrateError::InvalidPath)?,
             ])
             .output()
-            .map_err(|_| CreateCrateError::FailedToCreateCrate)
+            .map_err(CreateCrateError::FailedToCreateCrate)
     }
 
     #[derive(Error, Debug, PartialEq)]
