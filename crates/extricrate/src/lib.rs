@@ -984,11 +984,16 @@ pub mod dependencies {
             let tmp_crate = tmp_dir.join(test_crate_name);
             remove_dir_all(&tmp_crate).unwrap_or_default();
             let res = create_target_crate(&tmp_crate, test_crate_name).unwrap();
-            let paths = fs::read_dir(tmp_crate).unwrap();
+            let paths = fs::read_dir(&tmp_crate).unwrap();
             let created_paths = paths
                 .map(|path| path.unwrap().file_name().to_string_lossy().into_owned())
                 .collect::<Vec<_>>();
+            let src_paths = fs::read_dir(tmp_crate.join("src")).unwrap();
+            let created_src_paths = src_paths
+                .map(|path| path.unwrap().file_name().to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
             assert_eq!(created_paths, vec!["Cargo.toml", "src"]);
+            assert_eq!(created_src_paths, vec!["lib.rs"]);
         }
 
         #[test]
