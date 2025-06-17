@@ -1,10 +1,10 @@
 #![allow(dead_code, unused_variables)]
 pub mod dependencies {
+    use cargo_toml::{Manifest, Package};
     use core::fmt;
     use std::collections::{HashMap, HashSet, VecDeque};
-    use std::fs::read_to_string;
+    use std::fs::{self, create_dir_all, read_to_string};
     use std::path::{Path, PathBuf};
-    use std::process::{Command, Output};
 
     use proc_macro2::Span;
     use syn::{
@@ -443,27 +443,34 @@ pub mod dependencies {
         FailedToCreateCrate(std::io::Error),
         #[error("invalid path")]
         InvalidPath,
+        #[error("failed to serialize Cargo.toml")]
+        InvalidCargoToml,
     }
 
     /// Creates a new crate named [target_crate_name] at the [target_crate_root]
     pub fn create_target_crate(
         target_crate_root: &std::path::Path,
         target_crate_name: &str,
-    ) -> Result<Output, CreateCrateError> {
-        Command::new("cargo")
-            .args([
-                "new",
-                "--vcs",
-                "none",
-                "--lib",
-                "--name",
-                target_crate_name,
-                target_crate_root
-                    .to_str()
-                    .ok_or(CreateCrateError::InvalidPath)?,
-            ])
-            .output()
-            .map_err(CreateCrateError::FailedToCreateCrate)
+    ) -> Result<(), CreateCrateError> {
+        create_dir_all(target_crate_root.join("src")).map_err(|_| CreateCrateError::InvalidPath)?;
+
+        let manifest = Manifest {
+            package: Some(Package::<()>::new(target_crate_name.to_owned(), "0.0.1")),
+            ..Default::default()
+        };
+
+        fs::write(
+            target_crate_root.join("Cargo.toml"),
+            toml::to_string_pretty(&manifest).map_err(|_| CreateCrateError::InvalidCargoToml)?,
+        )
+        .map_err(CreateCrateError::FailedToCreateCrate)?;
+
+        fs::write(
+            target_crate_root.join("src/lib.rs"),
+            "// your new library crate\n",
+        )
+        .map_err(CreateCrateError::FailedToCreateCrate)?;
+        Ok(())
     }
 
     #[derive(Error, Debug, PartialEq)]
@@ -1013,7 +1020,7 @@ pub mod dependencies {
             let tmp_dir = temp_dir();
             let tmp_crate = tmp_dir.join(test_crate_name);
             remove_dir_all(&tmp_crate).unwrap_or_default();
-            let res = create_target_crate(&tmp_crate, test_crate_name).unwrap();
+            create_target_crate(&tmp_crate, test_crate_name).unwrap();
             let paths = fs::read_dir(&tmp_crate).unwrap();
             let created_paths = paths
                 .map(|path| path.unwrap().file_name().to_string_lossy().into_owned())
