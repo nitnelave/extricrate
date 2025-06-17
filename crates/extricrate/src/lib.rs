@@ -316,10 +316,11 @@ pub mod dependencies {
         root_path.extend(parts);
 
         let file_module = root_path.join(format!("{}.rs", module_name));
-        let folder_module = root_path.join(module_name).join("mod.rs");
         if file_module.exists() {
             return Ok(file_module);
-        } else if folder_module.exists() {
+        }
+        let folder_module = root_path.join(module_name).join("mod.rs");
+        if folder_module.exists() {
             return Ok(folder_module);
         }
         Err(ListUseStatementError::SourceFileForModuleNotFound(
