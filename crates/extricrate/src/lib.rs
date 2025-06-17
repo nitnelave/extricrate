@@ -1,5 +1,6 @@
 #![allow(dead_code, unused_variables)]
 pub mod dependencies {
+    use core::fmt;
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs::read_to_string;
     use std::path::{Path, PathBuf};
@@ -30,6 +31,28 @@ pub mod dependencies {
     impl From<&ModulePath> for ModuleName {
         fn from(value: &ModulePath) -> Self {
             Self(format!("crate::{}", value.0.replace(".", "::")))
+        }
+    }
+
+    impl fmt::Display for ModuleName {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_str(&self.0)
+        }
+    }
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct ModuleList(pub Vec<ModuleName>);
+    impl fmt::Display for ModuleList {
+        fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+            f.write_fmt(core::format_args!(
+                "{}",
+                self.0
+                    .iter()
+                    .map(|m| m.to_string())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ))?;
+            Ok(())
         }
     }
 
@@ -449,8 +472,8 @@ pub mod dependencies {
         EmptyModuleName,
         #[error("failed to convert module to path {0}")]
         ModulePathError(ListUseStatementError),
-        #[error("module contains non-descendant modules")]
-        ModuleContainsNonDescendants,
+        #[error("module is not self contained - contains non-descendants modules {0}")]
+        ModuleIsNotSelfContained(ModuleList),
         #[error("invalid parent directory")]
         InvalidParentDirectory,
     }
@@ -472,10 +495,17 @@ pub mod dependencies {
         let all_dependencies = list_dependencies(use_statements);
         let module_name: ModuleName = module.into();
         if let Some(file_dependencies) = all_dependencies.get(&module_name) {
-            if file_dependencies.iter().any(|dependency| {
-                dependency.0.starts_with("crate::") && !dependency.0.starts_with(&module_name.0)
-            }) {
-                return Err(GetAllModuleFilesError::ModuleContainsNonDescendants);
+            let non_descendant_dependencies: Vec<ModuleName> = file_dependencies
+                .iter()
+                .filter(|dependency| {
+                    dependency.0.starts_with("crate::") && !dependency.0.starts_with(&module_name.0)
+                })
+                .cloned()
+                .collect();
+            if !non_descendant_dependencies.is_empty() {
+                return Err(GetAllModuleFilesError::ModuleIsNotSelfContained(
+                    ModuleList(non_descendant_dependencies),
+                ));
             }
         }
         if file_path.file_name().and_then(|n| n.to_str()) == Some("mod.rs") {
@@ -502,9 +532,9 @@ pub mod dependencies {
         use syn::visit::Visit;
 
         use crate::dependencies::{
-            File, GetAllModuleFilesError, ListUseStatementError, ModuleName, ModulePath,
-            NormalizedUseStatement, UseStatement, UseStatementDetail, UseStatementType, Visitor,
-            get_all_module_files, list_dependencies, list_use_statements,
+            File, GetAllModuleFilesError, ListUseStatementError, ModuleList, ModuleName,
+            ModulePath, NormalizedUseStatement, UseStatement, UseStatementDetail, UseStatementType,
+            Visitor, get_all_module_files, list_dependencies, list_use_statements,
         };
 
         use super::{create_target_crate, mod_to_path};
@@ -1029,7 +1059,9 @@ pub mod dependencies {
             );
             assert_eq!(
                 res,
-                Err(GetAllModuleFilesError::ModuleContainsNonDescendants)
+                Err(GetAllModuleFilesError::ModuleIsNotSelfContained(
+                    ModuleList(vec![ModuleName("crate::module_a".to_owned())])
+                ))
             )
         }
     }
