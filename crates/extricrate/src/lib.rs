@@ -1071,6 +1071,18 @@ pub mod dependencies {
                 ))
             )
         }
+
+        #[test]
+        fn displays_module_list_as_comma_separated() {
+            assert_eq!(
+                ModuleList(vec![
+                    ModuleName("module_a".into()),
+                    ModuleName("module_b".into())
+                ])
+                .to_string(),
+                "module_a, module_b".to_string()
+            );
+        }
     }
 }
 
