@@ -1,8 +1,8 @@
 #![allow(dead_code, unused_variables)]
 
-use std::path::Path;
-
 use clap::Parser;
+use extricrate::transform::transform;
+use std::path::Path;
 
 /// Extricrate is a refactoring tool to extract a crate.
 #[derive(Debug, Parser, Clone)]
@@ -32,7 +32,7 @@ pub struct ListDependenciesOpts {
 
 #[derive(Debug, Parser, Clone)]
 pub struct ExtractOpts {
-    /// Module to extract to a crate.
+    /// Module to extract from a crate.
     #[clap(long, env = "EXTRICRATE_MODULE")]
     pub module: String,
     /// Target crate to create.
@@ -47,6 +47,6 @@ fn main() {
     logging::init();
     match opts.command {
         Command::ListDependencies(opts) => todo!(),
-        Command::Extract(opts) => todo!(),
+        Command::Extract(opts) => transform(Path::new(&opts.module), Path::new(&opts.crate_name)),
     }
 }

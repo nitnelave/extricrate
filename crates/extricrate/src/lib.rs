@@ -1,20 +1,20 @@
 #![allow(dead_code, unused_variables)]
 pub mod dependencies {
     use std::collections::{HashMap, HashSet, VecDeque};
-    use std::fs::{File as FsFile, read_to_string};
+    use std::fs::read_to_string;
     use std::path::{Path, PathBuf};
 
     use proc_macro2::Span;
     use syn::{
-        File as SynFile, Ident, Item, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath,
-        UseRename, UseTree, parse_file,
+        Ident, ItemMod, ItemUse, UseGlob, UseGroup, UseName, UsePath, UseRename, UseTree,
+        parse_file,
         spanned::Spanned,
         visit::{self, Visit},
     };
     use thiserror::Error;
 
     #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-    pub struct ModuleName(String);
+    pub struct ModuleName(pub String);
 
     impl From<String> for ModuleName {
         fn from(value: String) -> Self {
@@ -28,7 +28,7 @@ pub mod dependencies {
     }
 
     /// A single, separate use statement.
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct NormalizedUseStatement {
         pub module_name: ModuleName,
         pub statement_type: UseStatementType,
@@ -63,7 +63,7 @@ pub mod dependencies {
         }
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum UseStatementType {
         /// `use crate::log::Bar;`
         Simple(String),
@@ -73,69 +73,18 @@ pub mod dependencies {
         WildCard,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct UseStatement {
         /// Where the use statement appears.
-        source_module: ModuleName,
+        pub source_module: ModuleName,
         /// List of referenced modules.
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
-        target_modules: HashSet<ModuleName>,
+        pub target_modules: HashSet<ModuleName>,
         /// Where in the source file the use statement is.
-        statement: UseStatementDetail,
+        pub statement: UseStatementDetail,
     }
 
     pub type UseStatements = Vec<UseStatement>;
-
-    pub fn transform(input_path: &Path, output_path: &Path, use_statements: UseStatements) {
-        // Check whether the output path exists or not
-        if !output_path.exists() {
-            FsFile::create(output_path).expect("Err: failed to create a file");
-        }
-
-        // Read the input path content
-        let content = read_to_string(input_path).expect("Err: failed to read the file content");
-        let syntax: SynFile = syn::parse_file(&content).unwrap();
-
-        let mut output = content.clone();
-        for item in syntax.items {
-            if let Item::Use(use_item) = item {
-                let span = use_item.span();
-                let original = quote::quote!(#use_item).to_string();
-
-                if let Some(first_space) = original.find(' ') {
-                    let (first_part, rest) = original.split_at(first_space + 1);
-                    let split_rest = rest.replace(" ", "");
-                    let result = format!("{}{}", first_part, split_rest);
-
-                    let mut source: ModuleName;
-                    if let Some(input_str) = input_path.to_str() {
-                        source = ModuleName(input_str.to_string());
-                    }
-
-                    let mut target: HashSet<ModuleName> = HashSet::new();
-                    if let Some(output_str) = output_path.to_str() {
-                        target.insert(ModuleName(output_str.to_string()));
-                    }
-
-                    let statements = UseStatement {
-                        source_module: source,
-                        target_modules: target,
-                        statement: UseStatementDetail {
-                            items: vec![NormalizedUseStatement {
-                                module_name: ModuleName("module name".to_string()),
-                                statement_type: UseStatementType::Simple(result),
-                            }],
-                            span: _,
-                        },
-                    };
-                    // output = output.replacen(&result, "todo!();", 1);
-                } else {
-                    println!("{}", original);
-                }
-            }
-        }
-        std::fs::write("output.rs", output).unwrap();
-    }
 
     #[derive(Debug, Hash, PartialEq, Eq)]
     pub struct File(String);
@@ -148,10 +97,10 @@ pub mod dependencies {
         Inline { ident: Ident, span: Span },
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct UseStatementDetail {
-        items: Vec<NormalizedUseStatement>,
-        span: Span,
+        pub items: Vec<NormalizedUseStatement>,
+        pub span: Span,
     }
 
     #[derive(Debug)]
@@ -912,5 +861,110 @@ pub mod refactor {
     ) {
         // Should probably return errors.
         todo!()
+    }
+}
+
+pub mod transform {
+    use super::dependencies::{
+        ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail, UseStatementType,
+    };
+    use quote::ToTokens;
+    use std::{
+        collections::HashSet,
+        fs::{self, OpenOptions},
+        io::Write,
+        path::Path,
+    };
+    use syn::{File, Item, parse_file, spanned::Spanned};
+
+    pub fn transform(input: &Path, output: &Path) {
+        let source_code = read_source_code(input);
+        let source_module = create_module_name(input);
+        let target_modules = create_target_modules(output);
+        let syntax_tree = parse_syntax_tree(&source_code);
+
+        let mut lines: Vec<String> = source_code.lines().map(String::from).collect();
+        let replaced = replace_use_path(&syntax_tree, &mut lines);
+
+        if !replaced {
+            eprintln!("Warning: Could not find 'use std::path::Path;' in the input file");
+        }
+
+        let _statements = create_use_statement(source_module, target_modules);
+
+        let modified_code = lines.join("\n");
+        write_to_file(output, &modified_code);
+    }
+
+    fn read_source_code(input: &Path) -> String {
+        fs::read_to_string(input).expect("Err: failed to read the input file")
+    }
+
+    fn create_module_name(path: &Path) -> ModuleName {
+        let path_str = path.to_str().expect("Invalid UTF-8 path");
+        ModuleName(path_str.to_string())
+    }
+
+    fn create_target_modules(output: &Path) -> HashSet<ModuleName> {
+        let mut target = HashSet::new();
+        if let Some(output_str) = output.to_str() {
+            target.insert(ModuleName(output_str.to_string()));
+        }
+        target
+    }
+
+    fn parse_syntax_tree(source_code: &str) -> File {
+        parse_file(source_code).expect("Err: failed to parse the input file")
+    }
+
+    fn replace_use_path(syntax_tree: &File, lines: &mut Vec<String>) -> bool {
+        for item in &syntax_tree.items {
+            if let Item::Use(item_use) = item {
+                let use_stmt_str = item_use.clone().into_token_stream().to_string();
+                if use_stmt_str.contains("use std :: path :: Path ;") {
+                    let span = item_use.span();
+                    let start_line = span.start().line.saturating_sub(1);
+                    if start_line < lines.len() {
+                        lines[start_line] = "todo!();".to_string();
+                        return true;
+                    } else {
+                        eprintln!(
+                            "Warning: Span line {} is out of bounds for input file with {} lines",
+                            start_line + 1,
+                            lines.len()
+                        );
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    fn create_use_statement(source: ModuleName, target: HashSet<ModuleName>) -> UseStatement {
+        let module_name = ModuleName("std::path::Path".to_string());
+        UseStatement {
+            source_module: source,
+            target_modules: target,
+            statement: UseStatementDetail {
+                items: vec![NormalizedUseStatement {
+                    module_name,
+                    statement_type: UseStatementType::Simple("use std::path::Path;".to_string()),
+                }],
+                span: proc_macro2::Span::call_site(),
+            },
+        }
+    }
+
+    fn write_to_file(output: &Path, content: &str) {
+        let mut f = OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .open(output)
+            .expect("Err: failed to open the file");
+
+        f.write_all(content.as_bytes())
+            .expect("Err: failed to write to the file");
+        f.flush().expect("Err: failed to flush the file");
     }
 }

@@ -69,6 +69,7 @@ dependencies = [
  "extricrate",
  "log",
  "pretty_assertions",
+ "proc-macro2",
  "quote",
  "syn",
  "tracing",
