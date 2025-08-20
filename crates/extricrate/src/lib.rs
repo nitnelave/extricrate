@@ -868,103 +868,23 @@ pub mod transform {
     use super::dependencies::{
         ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail, UseStatementType,
     };
-    use quote::ToTokens;
-    use std::{
-        collections::HashSet,
-        fs::{self, OpenOptions},
-        io::Write,
-        path::Path,
-    };
-    use syn::{File, Item, parse_file, spanned::Spanned};
+    use proc_macro2::Span;
+    use std::collections::HashSet;
 
-    pub fn transform(input: &Path, output: &Path) {
-        let source_code = read_source_code(input);
-        let source_module = create_module_name(input);
-        let target_modules = create_target_modules(output);
-        let syntax_tree = parse_syntax_tree(&source_code);
+    pub fn replace_use_statement() -> UseStatement {
+        let module_name = ModuleName("use crate::foo".to_string());
+        let statement_type = UseStatementType::Simple("use std::path::Path;".to_string());
 
-        let mut lines: Vec<String> = source_code.lines().map(String::from).collect();
-        let replaced = replace_use_path(&syntax_tree, &mut lines);
-
-        if !replaced {
-            eprintln!("Warning: Could not find 'use std::path::Path;' in the input file");
-        }
-
-        let _statements = create_use_statement(source_module, target_modules);
-
-        let modified_code = lines.join("\n");
-        write_to_file(output, &modified_code);
-    }
-
-    fn read_source_code(input: &Path) -> String {
-        fs::read_to_string(input).expect("Err: failed to read the input file")
-    }
-
-    fn create_module_name(path: &Path) -> ModuleName {
-        let path_str = path.to_str().expect("Invalid UTF-8 path");
-        ModuleName(path_str.to_string())
-    }
-
-    fn create_target_modules(output: &Path) -> HashSet<ModuleName> {
-        let mut target = HashSet::new();
-        if let Some(output_str) = output.to_str() {
-            target.insert(ModuleName(output_str.to_string()));
-        }
-        target
-    }
-
-    fn parse_syntax_tree(source_code: &str) -> File {
-        parse_file(source_code).expect("Err: failed to parse the input file")
-    }
-
-    fn replace_use_path(syntax_tree: &File, lines: &mut Vec<String>) -> bool {
-        for item in &syntax_tree.items {
-            if let Item::Use(item_use) = item {
-                let use_stmt_str = item_use.clone().into_token_stream().to_string();
-                if use_stmt_str.contains("use std :: path :: Path ;") {
-                    let span = item_use.span();
-                    let start_line = span.start().line.saturating_sub(1);
-                    if start_line < lines.len() {
-                        lines[start_line] = "todo!();".to_string();
-                        return true;
-                    } else {
-                        eprintln!(
-                            "Warning: Span line {} is out of bounds for input file with {} lines",
-                            start_line + 1,
-                            lines.len()
-                        );
-                    }
-                }
-            }
-        }
-        false
-    }
-
-    fn create_use_statement(source: ModuleName, target: HashSet<ModuleName>) -> UseStatement {
-        let module_name = ModuleName("std::path::Path".to_string());
         UseStatement {
-            source_module: source,
-            target_modules: target,
+            source_module: module_name.clone(),
+            target_modules: HashSet::from([ModuleName("".into())]),
             statement: UseStatementDetail {
                 items: vec![NormalizedUseStatement {
                     module_name,
-                    statement_type: UseStatementType::Simple("use std::path::Path;".to_string()),
+                    statement_type,
                 }],
-                span: proc_macro2::Span::call_site(),
+                span: Span::call_site(),
             },
         }
-    }
-
-    fn write_to_file(output: &Path, content: &str) {
-        let mut f = OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .open(output)
-            .expect("Err: failed to open the file");
-
-        f.write_all(content.as_bytes())
-            .expect("Err: failed to write to the file");
-        f.flush().expect("Err: failed to flush the file");
     }
 }
