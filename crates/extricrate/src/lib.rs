@@ -479,7 +479,7 @@ pub mod dependencies {
         EmptyModuleName,
         #[error("failed to convert module to path {0}")]
         ModulePathError(ListUseStatementError),
-        #[error("module is not self contained - contains non-descendants modules {0}")]
+        #[error("module is not self contained - imports non-descendants modules from the same crate: {0}")]
         ModuleIsNotSelfContained(ModuleList),
         #[error("invalid parent directory")]
         InvalidParentDirectory,
