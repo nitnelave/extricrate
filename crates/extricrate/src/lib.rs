@@ -104,8 +104,8 @@ pub mod dependencies {
     }
 
     #[derive(Debug)]
-    struct Visitor {
-        use_statements: Vec<UseStatement>,
+    pub struct Visitor {
+        pub use_statements: Vec<UseStatement>,
         mod_statements: Vec<ModStatement>,
         /// Stack of module identifiers from the crate root through both file-based (`mod foo;`) and inline (`mod bar { … }`) modules
         ancestors: Vec<String>,
@@ -872,19 +872,42 @@ pub mod transform {
     use std::collections::HashSet;
 
     pub fn replace_use_statement() -> UseStatement {
-        let module_name = ModuleName("use crate::foo".to_string());
-        let statement_type = UseStatementType::Simple("use std::path::Path;".to_string());
+        let module_name = ModuleName("crate::foo".to_string());
+        let statement_type = UseStatementType::Simple("std::path".to_string());
+        let normalized_use_statement = NormalizedUseStatement {
+            module_name: module_name.clone(),
+            statement_type: statement_type,
+        };
 
         UseStatement {
             source_module: module_name.clone(),
-            target_modules: HashSet::from([ModuleName("".into())]),
+            target_modules: HashSet::from([module_name.clone()]),
             statement: UseStatementDetail {
-                items: vec![NormalizedUseStatement {
-                    module_name,
-                    statement_type,
-                }],
+                items: vec![normalized_use_statement],
                 span: Span::call_site(),
             },
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::dependencies::Visitor;
+        use syn::visit::Visit;
+
+        #[test]
+        fn use_type_resolved() {
+            let src = r#"
+                use crate::foo;
+                use std::path as mypath;
+            "#;
+
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = Visitor::default();
+            visitor.visit_file(&file);
+
+            println!("{:#?}", visitor.use_statements);
+
+            assert_eq!(visitor.use_statements.len(), 2);
         }
     }
 }
