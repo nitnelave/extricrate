@@ -485,8 +485,11 @@ pub mod dependencies {
         module: &ModulePath,
         use_statements: &UseStatementMap,
     ) -> Result<PathBuf, GetAllModuleFilesError> {
-        let mut parts = module.0.split('.').collect::<Vec<_>>();
-        let module_name = parts.pop().ok_or(GetAllModuleFilesError::EmptyModuleName)?;
+        let (parent_parts, module_name) = {
+            let mut parts = module.0.split('.').collect::<Vec<_>>();
+            let module_name = parts.pop().ok_or(GetAllModuleFilesError::EmptyModuleName)?;
+            (parts, module_name)
+        };
 
         let mut root_path = crate_root.join("src");
         root_path.extend(parts);
