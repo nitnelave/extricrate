@@ -1023,9 +1023,10 @@ pub mod dependencies {
             remove_dir_all(&tmp_crate).unwrap_or_default();
             create_target_crate(&tmp_crate, test_crate_name).unwrap();
             let paths = fs::read_dir(&tmp_crate).unwrap();
-            let created_paths = paths
+            let mut created_paths = paths
                 .map(|path| path.unwrap().file_name().to_string_lossy().into_owned())
                 .collect::<Vec<_>>();
+            created_paths.sort();
             let src_paths = fs::read_dir(tmp_crate.join("src")).unwrap();
             let created_src_paths = src_paths
                 .map(|path| path.unwrap().file_name().to_string_lossy().into_owned())
