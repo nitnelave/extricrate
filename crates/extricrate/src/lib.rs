@@ -473,7 +473,9 @@ pub mod dependencies {
         EmptyModuleName,
         #[error("failed to convert module to path {0}")]
         ModulePathError(ListUseStatementError),
-        #[error("module is not self contained - imports non-descendants modules from the same crate: {0}")]
+        #[error(
+            "module is not self contained - imports non-descendants modules from the same crate: {0}"
+        )]
         ModuleIsNotSelfContained(ModuleList),
         #[error("invalid parent directory")]
         InvalidParentDirectory,
@@ -492,7 +494,7 @@ pub mod dependencies {
         };
 
         let mut root_path = crate_root.join("src");
-        root_path.extend(parts);
+        root_path.extend(parent_parts);
 
         let file_path =
             mod_to_path(crate_root, module).map_err(GetAllModuleFilesError::ModulePathError)?;
