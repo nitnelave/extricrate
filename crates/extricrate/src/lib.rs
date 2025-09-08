@@ -45,7 +45,7 @@ pub mod dependencies {
     pub struct ModuleList(pub Vec<ModuleName>);
     impl fmt::Display for ModuleList {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_fmt(core::format_args!("{}", join(&self.0, ",")))?;
+            f.write_fmt(core::format_args!("{}", join(&self.0, ", ")))?;
             Ok(())
         }
     }
