@@ -2,6 +2,7 @@
 pub mod dependencies {
     use cargo_toml::{Manifest, Package};
     use core::fmt;
+    use itertools::join;
     use std::collections::{HashMap, HashSet, VecDeque};
     use std::fs::{self, create_dir_all, read_to_string};
     use std::path::{Path, PathBuf};
@@ -44,14 +45,7 @@ pub mod dependencies {
     pub struct ModuleList(pub Vec<ModuleName>);
     impl fmt::Display for ModuleList {
         fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-            f.write_fmt(core::format_args!(
-                "{}",
-                self.0
-                    .iter()
-                    .map(|m| m.to_string())
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ))?;
+            f.write_fmt(core::format_args!("{}", join(&self.0, ",")))?;
             Ok(())
         }
     }
