@@ -326,13 +326,15 @@ pub mod dependencies {
         crate_root: &Path,
         module_path: &ModulePath,
     ) -> Result<PathBuf, ListUseStatementError> {
-        let mut parts = module_path.0.split('.').collect::<Vec<_>>();
-        let module_name = parts.pop().ok_or(ListUseStatementError::EmptyModuleName)?;
+        let parts = module_path.0.split('.').collect::<Vec<_>>();
+        let (module_name, parts) = parts
+            .split_last()
+            .ok_or(ListUseStatementError::EmptyModuleName)?;
 
         let mut root_path = crate_root.join("src");
         root_path.extend(parts);
 
-        let file_module = root_path.join(format!("{}.rs", module_name));
+        let file_module = root_path.join(format!("{module_name}.rs"));
         if file_module.exists() {
             return Ok(file_module);
         }
@@ -487,14 +489,14 @@ pub mod dependencies {
         module: &ModulePath,
         use_statements: &UseStatementMap,
     ) -> Result<PathBuf, GetAllModuleFilesError> {
-        let (parent_parts, module_name) = {
-            let mut parts = module.0.split('.').collect::<Vec<_>>();
-            let module_name = parts.pop().ok_or(GetAllModuleFilesError::EmptyModuleName)?;
-            (parts, module_name)
-        };
+        let parts = module.0.split('.').collect::<Vec<_>>();
+        let module_name = parts
+            .split_last()
+            .ok_or(GetAllModuleFilesError::EmptyModuleName)?
+            .0;
 
         let mut root_path = crate_root.join("src");
-        root_path.extend(parent_parts);
+        root_path.extend(parts);
 
         let file_path =
             mod_to_path(crate_root, module).map_err(GetAllModuleFilesError::ModulePathError)?;
