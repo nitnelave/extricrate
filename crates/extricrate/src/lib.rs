@@ -17,7 +17,7 @@ pub mod dependencies {
     use thiserror::Error;
 
     #[derive(Debug, PartialEq, Eq, Clone, Hash)]
-    pub struct ModuleName(String);
+    pub struct ModuleName(pub String);
 
     impl From<String> for ModuleName {
         fn from(value: String) -> Self {
@@ -64,10 +64,10 @@ pub mod dependencies {
     }
 
     /// A single, separate use statement.
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub struct NormalizedUseStatement {
-        module_name: ModuleName,
-        statement_type: UseStatementType,
+        pub module_name: ModuleName,
+        pub statement_type: UseStatementType,
     }
 
     fn should_remove_prefix(import_name: &str) -> bool {
@@ -99,7 +99,7 @@ pub mod dependencies {
         }
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Debug, PartialEq, Eq, Clone)]
     pub enum UseStatementType {
         /// `use crate::log::Bar;`
         Simple(String),
@@ -109,15 +109,15 @@ pub mod dependencies {
         WildCard,
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub struct UseStatement {
         /// Where the use statement appears.
-        source_module: ModuleName,
+        pub source_module: ModuleName,
         /// List of referenced modules.
         /// Several targets, to represent `use crate::{log, foo::{bar, baz}};`
-        target_modules: HashSet<ModuleName>,
+        pub target_modules: HashSet<ModuleName>,
         /// Where in the source file the use statement is.
-        statement: UseStatementDetail,
+        pub statement: UseStatementDetail,
     }
 
     pub type UseStatements = Vec<UseStatement>;
@@ -133,15 +133,15 @@ pub mod dependencies {
         Inline { ident: Ident, span: Span },
     }
 
-    #[derive(Debug)]
-    struct UseStatementDetail {
-        items: Vec<NormalizedUseStatement>,
-        span: Span,
+    #[derive(Debug, Clone)]
+    pub struct UseStatementDetail {
+        pub items: Vec<NormalizedUseStatement>,
+        pub span: Span,
     }
 
     #[derive(Debug)]
-    struct Visitor {
-        use_statements: Vec<UseStatement>,
+    pub struct Visitor {
+        pub use_statements: Vec<UseStatement>,
         mod_statements: Vec<ModStatement>,
         /// Stack of module identifiers from the crate root through both file-based (`mod foo;`) and inline (`mod bar { … }`) modules
         ancestors: Vec<String>,
@@ -1110,5 +1110,82 @@ pub mod refactor {
         // transform_statements_for_local_crate(file_to_move, &use_statements);
         // cycle all the statement and updates files with the new crate reference
         // update_statements_for_external_crate(files_to_move, use_statements);
+    }
+}
+
+pub mod transform {
+    use super::dependencies::{
+        ModuleName, NormalizedUseStatement, UseStatement, UseStatementDetail, UseStatementType,
+    };
+    use proc_macro2::Span;
+    use std::collections::HashSet;
+
+    pub fn find_use_statement() -> UseStatement {
+        let module_name = ModuleName("crate::foo".to_string());
+        let statement_type = UseStatementType::Simple("std::path".to_string());
+        let normalized_use_statement = NormalizedUseStatement {
+            module_name: module_name.clone(),
+            statement_type: statement_type,
+        };
+
+        UseStatement {
+            source_module: module_name.clone(),
+            target_modules: HashSet::from([module_name.clone()]),
+            statement: UseStatementDetail {
+                items: vec![normalized_use_statement],
+                span: Span::call_site(),
+            },
+        }
+    }
+
+    pub fn replace_use_statement() {
+        let module_name = ModuleName("crate::foo".to_string());
+        let statement_type = UseStatementType::Alias("std::path".to_string(), "mypath".to_string());
+        let normalized_use_statement = NormalizedUseStatement {
+            module_name: module_name.clone(),
+            statement_type: statement_type,
+        };
+
+        let data = UseStatement {
+            source_module: module_name.clone(),
+            target_modules: HashSet::from([module_name.clone()]),
+            statement: UseStatementDetail {
+                items: vec![normalized_use_statement],
+                span: Span::call_site(),
+            },
+        };
+
+        let statement_data = match &data.statement.items[0].statement_type {
+            UseStatementType::Simple(s) => s.clone(),
+            UseStatementType::Alias(s, alias) => format!("{} as {}", s.as_str(), alias.as_str()),
+            UseStatementType::WildCard => "*".to_string(),
+        };
+
+        println!(
+            "Use statement: {}::{}",
+            data.statement.items[0].module_name.0, statement_data
+        );
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use crate::dependencies::Visitor;
+        use syn::visit::Visit;
+
+        #[test]
+        fn use_type_resolved() {
+            let src = r#"
+                use crate::foo;
+                use std::path as mypath;
+            "#;
+
+            let file = syn::parse_file(src).unwrap();
+            let mut visitor = Visitor::default();
+            visitor.visit_file(&file);
+
+            println!("{:#?}", visitor.use_statements);
+
+            assert_eq!(visitor.use_statements.len(), 2);
+        }
     }
 }
