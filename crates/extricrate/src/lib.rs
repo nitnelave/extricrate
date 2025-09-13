@@ -871,7 +871,7 @@ pub mod transform {
     use proc_macro2::Span;
     use std::collections::HashSet;
 
-    pub fn replace_use_statement() -> UseStatement {
+    pub fn find_use_statement() -> UseStatement {
         let module_name = ModuleName("crate::foo".to_string());
         let statement_type = UseStatementType::Simple("std::path".to_string());
         let normalized_use_statement = NormalizedUseStatement {
@@ -887,6 +887,35 @@ pub mod transform {
                 span: Span::call_site(),
             },
         }
+    }
+
+    pub fn replace_use_statement() {
+        let module_name = ModuleName("crate::foo".to_string());
+        let statement_type = UseStatementType::Alias("std::path".to_string(), "mypath".to_string());
+        let normalized_use_statement = NormalizedUseStatement {
+            module_name: module_name.clone(),
+            statement_type: statement_type,
+        };
+
+        let data = UseStatement {
+            source_module: module_name.clone(),
+            target_modules: HashSet::from([module_name.clone()]),
+            statement: UseStatementDetail {
+                items: vec![normalized_use_statement],
+                span: Span::call_site(),
+            },
+        };
+
+        let statement_data = match &data.statement.items[0].statement_type {
+            UseStatementType::Simple(s) => s.clone(),
+            UseStatementType::Alias(s, alias) => format!("{} as {}", s.as_str(), alias.as_str()),
+            UseStatementType::WildCard => "*".to_string(),
+        };
+
+        println!(
+            "Use statement: {}::{}",
+            data.statement.items[0].module_name.0, statement_data
+        );
     }
 
     #[cfg(test)]

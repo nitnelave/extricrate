@@ -1,7 +1,7 @@
 #![allow(dead_code, unused_variables)]
 
 use clap::Parser;
-use extricrate::transform::replace_use_statement;
+use extricrate::transform::{find_use_statement, replace_use_statement};
 
 /// Extricrate is a refactoring tool to extract a crate.
 #[derive(Debug, Parser, Clone)]
@@ -47,7 +47,8 @@ fn main() {
     match opts.command {
         Command::ListDependencies(opts) => todo!(),
         Command::Extract(opts) => {
-            let _ = replace_use_statement();
+            let _ = find_use_statement();
+            replace_use_statement();
         }
     }
 }
